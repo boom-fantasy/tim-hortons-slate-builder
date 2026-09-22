@@ -1,0 +1,14 @@
+# Two cron services share this image; each overrides startCommand.
+#
+#   slate-build : 0 1 * * *   (8pm ET / 01:00 UTC) -> python -m src.main build
+#   slate-drift : 30 14 * * * (9:30am ET / 14:30 UTC) -> python -m src.main drift
+#
+# Cron on Railway is UTC. ET shifts by an hour across DST, so revisit these
+# in March and November or accept the hour drift.
+
+[build]
+builder = "dockerfile"
+
+[deploy]
+startCommand = "python -m src.main build"
+restartPolicyType = "never"

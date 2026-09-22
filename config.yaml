@@ -1,0 +1,289 @@
+# =============================================================================
+# Hockey Challenge — Slate Builder config
+#
+# Everything tunable lives here. Changing a value here changes behaviour on the
+# next run with no code change and no redeploy of logic.
+#
+# Commit every change to this file. When you reconcile projected vs. actual
+# later in the season, git history tells you what the bands were on any night.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Contest economics
+# -----------------------------------------------------------------------------
+contest:
+  # Points awarded for exactly N correct picks. Index 0 = 0 correct.
+  # Regular season 2026-27: 10 / 25 / 100 (was 25 / 50 / 100 in playoffs).
+  payouts: [0, 10, 25, 100]
+
+  # Target share of users landing on exactly N correct. Index 0 = 0 correct.
+  #
+  # Confirmed for the 2026-27 regular season: 46% / 13% / 1% on the winning
+  # buckets, so 40% get nothing. Implies a budget of 8.85 points per user per
+  # day and 0.75 expected correct picks.
+  targets: [0.40, 0.46, 0.13, 0.01]
+
+  # Max players per tier that actually make the contest. Pools larger than this
+  # get randomly sampled down, which dilutes the top-of-tier probability a
+  # sharp user actually sees. Set to null to disable dilution modelling.
+  max_players_per_tier: 15
+
+# -----------------------------------------------------------------------------
+# Tier bands — American odds, inclusive on both ends
+#
+# A player is assigned to the first tier whose range contains their odds.
+# Anything outside every range is excluded from the slate.
+#
+# PROVISIONAL. Solved against the 8.85-point budget, but on a SIMULATED slate —
+# no real odds have been pulled yet. Re-derive with `simulate` on a real pull
+# before the first live contest.
+#
+# They are far looser than last season's playoff bands (+250/+501/+1001),
+# because the payouts dropped (10/25/100 from 25/50/100) while the win rate
+# rose (60% from 40%). One consequence: the old rule of excluding anyone
+# shorter than +250 no longer applies — the stars you used to pull out belong
+# in tier 1 now.
+# -----------------------------------------------------------------------------
+tiers:
+  - tier: 1
+    min_odds: 150
+    max_odds: 290
+  - tier: 2
+    min_odds: 291
+    max_odds: 540
+  - tier: 3
+    min_odds: 541
+    max_odds: 900
+
+# -----------------------------------------------------------------------------
+# Odds handling
+# -----------------------------------------------------------------------------
+odds:
+  # Overround to strip from implied probability. Anytime-goalscorer markets
+  # typically carry 5-8%. Lower this if you switch to a sharper book.
+  devig: 0.06
+
+  # Sportsbook key as OpticOdds names it.
+  sportsbook: draftkings
+
+# -----------------------------------------------------------------------------
+# OpticOdds lookups
+#
+# VERIFY BOTH OF THESE BEFORE THE FIRST LIVE RUN. OpticOdds uses canonical
+# slugs, not short codes, and guessing returns empty results silently.
+#
+#   python -m src.main discover --sport hockey
+#
+# will print the valid league slugs and the goalscorer market key for
+# DraftKings so you can paste the right values in here.
+# -----------------------------------------------------------------------------
+optic_odds:
+  base_url: https://api.opticodds.com
+  sport: hockey
+  league: usa_-_nhl          # VERIFY
+  market: player_goals       # VERIFY — may be player_to_score_anytime
+  timeout_seconds: 30
+  max_retries: 3
+
+# -----------------------------------------------------------------------------
+# Slate construction rules
+# -----------------------------------------------------------------------------
+slate:
+  # If a scheduled game has no goalscorer market at pull time, drop the whole
+  # game rather than writing a partial pool for it. A half-populated game
+  # skews the pool toward whichever players happened to be priced first.
+  drop_games_without_market: true
+
+  # Warn in Slack if fewer than this share of the night's games came back with
+  # a market. Partial coverage biases the pool toward marquee games, which run
+  # hotter than the average game.
+  coverage_warn_threshold: 0.80
+
+  # Flag a slate where one team holds more than this share of T1+T2 players.
+  # Correlated picks fatten the tails, and the 3-correct bucket now pays 10x
+  # the 1-correct bucket, so the tail matters more than it did last season.
+  team_concentration_warn: 0.60
+
+  # Timezone used to decide which calendar day "tomorrow" is.
+  timezone: America/New_York
+
+# -----------------------------------------------------------------------------
+# Historical fallback
+#
+# When a whole game has no goalscorer market at pull time, estimate its players
+# from their recent prices instead of dropping them.
+#
+# This runs ONLY at the game level. If a game IS priced and a player is simply
+# absent from it, that absence is a real signal — DraftKings priced everyone
+# they expect to dress, so a missing player is scratched or hurt. Those players
+# are always dropped, never estimated.
+# -----------------------------------------------------------------------------
+fallback:
+  # OFF for the start of the 2026-27 season.
+  #
+  # The lookback reaches a team's last 5 COMPLETED games, which in early
+  # October means preseason: prospect-heavy lineups and regulars on limited
+  # minutes. Those prices are a bad basis for regular-season tiering, and the
+  # fallback would produce confident-looking estimates from them.
+  #
+  # Turn back on once teams have ~5 regular-season games in — mid-October.
+  # An unpriced game drops entirely while this is off, which is more honest
+  # than a wrong tier.
+  enabled: false
+
+  # How many of the team's recent completed games to look back over.
+  # Fewer is noisier; more washes out line changes and role shifts, which move
+  # goalscorer prices a lot. Any number of games from 1 to this is usable — a
+  # player with a single prior price still gets estimated.
+  lookback_games: 5
+
+  # Which price to take from each historical game.
+  #
+  # "opening" is the right analogue for what we are estimating. A closing line
+  # reflects confirmed goalies and lineups — information we do not have at 8pm
+  # the night before — so using it would make the estimate look sharper than
+  # the situation actually supports.
+  line_type: opening        # opening | closing
+
+  # Require the player to have been priced in their most recent game.
+  #
+  # Completed games have all been priced, so a player missing from one was
+  # scratched — a real signal, not a gap in the book's posting schedule. They
+  # are likely still out, so they are dropped rather than estimated.
+  #
+  # This is the conservative call and deliberately so: leaving out a star who
+  # would have played is a minor loss, while including one who does not dress
+  # hands the user a pick with no chance of hitting.
+  #
+  # Games whose odds we could not RETRIEVE (API error, no retention) are a
+  # different thing — that is our failure, not evidence about any player — so
+  # they are skipped and the check falls to the next game back.
+  require_recent_appearance: true
+
+  # Ignore games before this date when looking back.
+  #
+  # Preseason prices are a bad basis for regular-season tiering — lineups are
+  # full of prospects who will not be on the roster and regulars play limited
+  # minutes — so a confident-looking estimate built on them is worse than
+  # dropping the game. Set this to the regular-season opener.
+  #
+  # This self-heals: on opening night a team has no eligible history and their
+  # unpriced games drop, and by mid-October they have a full window again.
+  # Nothing to remember to switch back on.
+  #
+  # Set to null to look back without a floor.
+  earliest_game_date: "2026-09-29"
+
+  # Second line of defence, if the feed labels fixtures by season type. The date
+  # floor above is what actually does the work — this only helps if the field
+  # exists, which is unverified.
+  exclude_season_types: [preseason, exhibition, prospect]
+
+  # Appended to the player's name in the sheet so estimated rows are obvious on
+  # review. Set to "" to disable.
+  marker: " (est)"
+
+# -----------------------------------------------------------------------------
+# Season roster
+#
+# Every player seen gets kept for the season so the nightly paste has a stable
+# shape. Anyone without a usable price on a given night is tier 4 — listed but
+# not selectable — which is what the contest sheet expects.
+# -----------------------------------------------------------------------------
+roster:
+  enabled: true
+
+  # Seed each team's roster from the players endpoint on first sight, so the
+  # very first slates already carry tier 4s instead of accreting them over
+  # several weeks.
+  seed_from_api: true
+
+  # Goalies never carry a goalscorer price, so they would sit at tier 4 all
+  # season doing nothing. Dropped at seed time where the feed exposes position.
+  exclude_positions: [G, GOALIE, GOALTENDER]
+
+  # Drop an api-sourced player after this many days with no price. They are
+  # re-added automatically the first night they are priced again, so this only
+  # controls list length — it never affects whether someone is correctly tier 4.
+  # Manually added players are never pruned.
+  prune_after_days: 30
+
+  # Warn when a hand-added player has never matched a priced player after this
+  # many days. A typo'd name looks identical to a player who simply is not being
+  # priced, and this is the only way to tell them apart.
+  manual_unmatched_warn_days: 14
+
+  # Hidden tab holding the roster. Safe to hand-edit: add a row with team and
+  # player name, leave player_id blank, set source to "manual". The job fills in
+  # the id once it sees a priced player with that name.
+  tab: "_roster"
+
+# -----------------------------------------------------------------------------
+# Google Sheets output
+# -----------------------------------------------------------------------------
+sheets:
+  # Tab your team copies from, laid out to match the contest-creation sheet:
+  # two columns per team (Player Name, Tier) with a spacer column between,
+  # teams left-to-right alphabetically by location. A blank row separates
+  # tiers 1-3 from tier 4 within each team.
+  paste_tab_format: "Paste %Y-%m-%d"
+
+  # Pad every team's tier 1-3 block to the same height so the blank row and the
+  # tier 4 block line up across columns. Off means each column closes up tight
+  # and the break lands wherever that team's tier 3 ends — which puts one
+  # team's tier 4 alongside another's gap when you scan across.
+  align_tier_break: true
+
+  # Hidden tab holding the estimate-accuracy log.
+  #
+  # `build` appends a row for every estimated player with the estimate it made.
+  # `drift` fills in the actual opening price once the market posts. The gap
+  # between the two is the only evidence you get about whether the historical
+  # fallback is any good — without it the estimates look plausible and nothing
+  # ever contradicts them.
+  #
+  # Run `python -m src.main accuracy` to roll it up.
+  estimate_log_tab: "_estimate_log"
+
+  # The master workbook. Share it with the service account as an Editor.
+  spreadsheet_id: ""          # FILL IN
+
+  # Tab that gets copied for each night's slate. Keep its formulas intact —
+  # the script writes only columns A-D and lets the sheet compute the rest.
+  template_tab: "Calibration v2"
+
+  # strftime pattern for the new tab's name.
+  tab_name_format: "Slate %Y-%m-%d"
+
+  # First row of the player table, and the columns the script writes.
+  first_data_row: 8
+  columns:
+    player: A
+    team: B
+    opponent: C
+    odds: D
+
+  # Where the script stamps slate metadata.
+  date_cell: B3
+  games_cell: E3
+
+# -----------------------------------------------------------------------------
+# Slack
+# -----------------------------------------------------------------------------
+slack:
+  enabled: true
+  channel: "#hockey-challenge"
+  # Bot token comes from the SLACK_BOT_TOKEN env var, never from this file.
+
+# -----------------------------------------------------------------------------
+# Post-lock drift check
+#
+# The slate locks when the contest is generated, so this cannot fix anything.
+# It is measurement only: it tells you how often a locked slate had a player
+# scratched or repriced after the fact, which is the error term you need when
+# comparing projected payout against actual.
+# -----------------------------------------------------------------------------
+drift_check:
+  enabled: true
+  # Flag a player whose true probability moved more than this share.
+  move_threshold: 0.20
