@@ -1,4 +1,7 @@
-# Two cron services share this image; each overrides startCommand.
+# Two cron services share this image. Each one's start command and cron
+# schedule are set in the Railway dashboard, NOT here: settings in this file
+# override the dashboard for every service built from the repo, so a
+# startCommand here would make both services run the same command.
 #
 #   slate-build : 0 2,3 * * *    -> python -m src.main build --scheduled
 #   slate-drift : 30 13,14 * * * -> python -m src.main drift --scheduled
@@ -12,5 +15,5 @@
 builder = "dockerfile"
 
 [deploy]
-startCommand = "python -m src.main build"
+# One-shot jobs: run, exit, never restart. Required for cron services.
 restartPolicyType = "never"
