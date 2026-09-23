@@ -389,6 +389,45 @@ class SheetsWriter:
         log.info("appended %d price history row(s)", len(rows))
         return len(rows)
 
+    # -- drift log ----------------------------------------------------------
+
+    DRIFT_LOG_HEADER = [
+        "date", "player", "team", "source", "locked_odds", "locked_tier",
+        "current_odds", "current_tier", "prob_move", "flag",
+    ]
+
+    def append_drift_log(self, rows: list[list], date_iso: str) -> int:
+        """Append one morning's drift rows. Never pruned.
+
+        Skipped when the date is already logged, so a re-run of drift (by hand,
+        or a retry) does not double-count a day. The first run of the morning
+        is the one kept, matching the price store's earliest-capture rule.
+        """
+        if not rows:
+            return 0
+        spreadsheet = self._spreadsheet()
+        title = self.cfg.sheets.drift_log_tab
+        self._ensure_tab(spreadsheet, title, self.DRIFT_LOG_HEADER)
+
+        resp = self.service.spreadsheets().values().get(
+            spreadsheetId=self.spreadsheet_id, range=f"'{title}'!A:A"
+        ).execute()
+        logged_dates = {str(r[0]).strip() for r in resp.get("values", [])[1:] if r}
+        if date_iso in logged_dates:
+            log.info("drift log already has %s — not appending again", date_iso)
+            return 0
+
+        # RAW keeps dates as YYYY-MM-DD text, so the check above keeps working.
+        self.service.spreadsheets().values().append(
+            spreadsheetId=self.spreadsheet_id,
+            range=f"'{title}'!A:J",
+            valueInputOption="RAW",
+            insertDataOption="INSERT_ROWS",
+            body={"values": rows},
+        ).execute()
+        log.info("logged %d drift row(s) for %s", len(rows), date_iso)
+        return len(rows)
+
     # -- paste tab ----------------------------------------------------------
 
     def write_paste_tab(self, rows: list[list[str]], tab_name: str,

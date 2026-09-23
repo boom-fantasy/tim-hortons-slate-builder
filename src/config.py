@@ -109,6 +109,7 @@ class SheetsConfig:
     template_tab: str
     estimate_log_tab: str
     price_history_tab: str
+    drift_log_tab: str
     paste_tab_format: str
     align_tier_break: bool
     tab_name_format: str
@@ -128,6 +129,7 @@ class SlackConfig:
 class DriftCheckConfig:
     enabled: bool
     move_threshold: float
+    slack: bool
 
 
 @dataclass(frozen=True)
@@ -383,6 +385,7 @@ def load(path: str | Path | None = None) -> Config:
             template_tab=str(_require(sh, "template_tab", "sheets")),
             estimate_log_tab=str(sh.get("estimate_log_tab", "_estimate_log")),
             price_history_tab=str(sh.get("price_history_tab", "_price_history")),
+            drift_log_tab=str(sh.get("drift_log_tab", "_drift_log")),
             paste_tab_format=str(sh.get("paste_tab_format", "Paste %Y-%m-%d")),
             align_tier_break=bool(sh.get("align_tier_break", True)),
             tab_name_format=str(sh.get("tab_name_format", "Slate %Y-%m-%d")),
@@ -400,6 +403,7 @@ def load(path: str | Path | None = None) -> Config:
         drift_check = DriftCheckConfig(
             enabled=bool(dc.get("enabled", False)),
             move_threshold=float(dc.get("move_threshold", 0.20)),
+            slack=bool(dc.get("slack", False)),
         )
     except KeyError as exc:
         raise ConfigError(f"config.yaml: missing required section {exc}") from exc

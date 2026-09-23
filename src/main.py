@@ -215,6 +215,18 @@ def _load_price_history(cfg):
         return None
 
 
+def _alert_failure(args, cfg, stage: str, error: str) -> None:
+    """Post a build failure to Slack — except on a dry run, which only logs.
+
+    Dry runs are how the service gets tested, and a test should never land in
+    the team channel.
+    """
+    if getattr(args, "dry_run", False):
+        log.info("dry run: not posting %s failure to Slack", stage)
+        return
+    notify.failure(cfg, stage, error)
+
+
 def cmd_build(args, cfg) -> int:
     date_iso = _target_date(cfg, args.date)
     tab_name = datetime.strptime(date_iso, "%Y-%m-%d").strftime(
@@ -230,7 +242,7 @@ def cmd_build(args, cfg) -> int:
         )
     except Exception as exc:
         log.exception("odds pull failed")
-        notify.failure(cfg, "odds pull", str(exc))
+        _alert_failure(args, cfg, "odds pull", str(exc))
         return 1
 
     eligible = build.eligible
@@ -246,7 +258,7 @@ def cmd_build(args, cfg) -> int:
             f"{build.fixtures_with_market} with a market."
         )
         log.error(msg)
-        notify.failure(cfg, "slate assembly", msg)
+        _alert_failure(args, cfg, "slate assembly", msg)
         return 1
 
     stats = tier_stats(eligible, cfg)
@@ -299,7 +311,7 @@ def cmd_build(args, cfg) -> int:
         )
     except Exception as exc:
         log.exception("sheet write failed")
-        notify.failure(cfg, "sheet write", str(exc))
+        _alert_failure(args, cfg, "sheet write", str(exc))
         return 1
 
     # Season roster + paste tab. Failures here must not lose the slate that was
@@ -376,28 +388,32 @@ def cmd_build(args, cfg) -> int:
 
 
 def cmd_drift(args, cfg) -> int:
-    from .sheets import SheetsWriter
+    """Morning run on game day. Collects and measures; changes nothing.
+
+    In order of importance:
+      1. Record today's prices in the price store. Games unpriced at 10pm often
+         have a market by now, and this is the only capture the fallback will
+         ever get of them — so it runs first and does not depend on anything
+         else succeeding. In particular it runs when last night's build wrote
+         no slate at all, which is exactly the night it matters most.
+      2. Score last night's fallback estimates against real prices.
+      3. Compare the locked slate against current odds (scratches, big moves).
+
+    Results go to the log. Slack only if drift_check.slack is on.
+    """
+    from .sheets import SheetsError, SheetsWriter
 
     date_iso = args.date or datetime.now(ZoneInfo(cfg.slate.timezone)).strftime("%Y-%m-%d")
     tab_name = datetime.strptime(date_iso, "%Y-%m-%d").strftime(cfg.sheets.tab_name_format)
 
     writer = SheetsWriter(cfg)
-    locked_rows = writer.read_slate(tab_name)
-    if not locked_rows:
-        log.error("no rows found in tab %r", tab_name)
-        return 1
-
-    locked = {name: odds for name, _team, _opp, odds in locked_rows}
-
     client = OpticOddsClient(cfg)
     # Real prices only. With the fallback on, an estimate would be compared
     # against itself below and always score as a match.
     build = slate_mod.build(client, cfg, date_iso, use_fallback=False)
     current = {p.name: p.american_odds for p in build.players}
 
-    # Games unpriced at 10pm often have a market by now, and this is the only
-    # capture the fallback will ever get of them. Append-only: pruning happens
-    # in build.
+    # 1. Price store. Append-only: pruning happens in build.
     try:
         from . import price_store
 
@@ -408,29 +424,9 @@ def cmd_drift(args, cfg) -> int:
     except Exception:
         log.exception("price store update failed")
 
-    changes: list[str] = []
-    threshold = cfg.drift_check.move_threshold
-
-    for name, old_odds in locked.items():
-        new_odds = current.get(name)
-        if new_odds is None:
-            changes.append(f"*{name}* — no longer priced (likely scratched)")
-            continue
-
-        old_p = 100.0 / (old_odds + 100.0)
-        new_p = 100.0 / (new_odds + 100.0)
-        if old_p <= 0:
-            continue
-        move = (new_p - old_p) / old_p
-        if abs(move) >= threshold:
-            direction = "shorter" if move > 0 else "longer"
-            changes.append(
-                f"*{name}* — {old_odds:+d} to {new_odds:+d} ({direction}, {move:+.0%})"
-            )
-
-    # Fill in what the estimates were actually worth. This is the only feedback
-    # the historical fallback ever gets — without it the estimates look
-    # plausible and nothing contradicts them.
+    # 2. Fill in what the estimates were actually worth. This is the only
+    # feedback the historical fallback ever gets — without it the estimates
+    # look plausible and nothing contradicts them.
     accuracy_note = ""
     try:
         pending = [
@@ -470,13 +466,73 @@ def cmd_drift(args, cfg) -> int:
         except Exception:
             log.exception("could not write estimate actuals")
 
+    # 3. Movement since lock. No slate tab means last night's build wrote
+    # nothing (no eligible players, or it failed) — nothing to compare, but
+    # not an error for this run, since steps 1 and 2 have already done their
+    # job.
+    try:
+        locked_rows = writer.read_slate(tab_name)
+    except SheetsError:
+        log.warning("no slate tab %r — skipping the movement check", tab_name)
+        locked_rows = []
+
+    changes: list[str] = []
+    log_rows: list[list] = []
+    threshold = cfg.drift_check.move_threshold
+    marker = cfg.fallback.marker
+
+    for shown_name, team, _opp, old_odds in locked_rows:
+        # Estimated players carry the marker in the slate tab ("X (est)").
+        # Strip it to look up the real price, and keep them apart from live
+        # players: their "move" is estimation error, not market drift, and is
+        # scored in the estimate log instead.
+        estimated = bool(marker) and shown_name.endswith(marker)
+        name = shown_name[: -len(marker)] if estimated else shown_name
+        source = "est" if estimated else "live"
+
+        old_tier = cfg.tier_for(old_odds)
+        new_odds = current.get(name)
+        if new_odds is None:
+            flag = "not_priced"
+            log_rows.append([date_iso, name, team, source, old_odds, old_tier or "",
+                             "", "", "", flag])
+            if not estimated:
+                changes.append(f"*{name}* — no longer priced (likely scratched)")
+            continue
+
+        old_p = 100.0 / (old_odds + 100.0)
+        new_p = 100.0 / (new_odds + 100.0)
+        move = (new_p - old_p) / old_p if old_p > 0 else 0.0
+        new_tier = cfg.tier_for(new_odds)
+        flag = "moved" if abs(move) >= threshold else ""
+        log_rows.append([date_iso, name, team, source, old_odds, old_tier or "",
+                         new_odds, new_tier or "out of band", round(move, 4), flag])
+
+        if flag and not estimated:
+            direction = "shorter" if move > 0 else "longer"
+            changes.append(
+                f"*{name}* — {old_odds:+d} to {new_odds:+d} ({direction}, {move:+.0%})"
+            )
+
+    if locked_rows:
+        live = sum(1 for r in log_rows if r[3] == "live")
+        log.info("drift: %d of %d live locked player(s) moved or unpriced", len(changes), live)
     for line in changes:
         log.info("drift: %s", line.replace("*", ""))
 
-    try:
-        notify.drift_summary(cfg, tab_name, changes, accuracy_note)
-    except Exception:
-        log.exception("slack notification failed")
+    # Kept for the season: every locked player, not just the flagged ones, so
+    # "how often does a locked slate go stale" has a denominator.
+    if log_rows:
+        try:
+            writer.append_drift_log(log_rows, date_iso)
+        except Exception:
+            log.exception("could not write the drift log")
+
+    if cfg.drift_check.slack and locked_rows:
+        try:
+            notify.drift_summary(cfg, tab_name, changes, accuracy_note)
+        except Exception:
+            log.exception("slack notification failed")
 
     return 0
 
