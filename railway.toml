@@ -1,10 +1,12 @@
 # Two cron services share this image; each overrides startCommand.
 #
-#   slate-build : 0 1 * * *   (8pm ET / 01:00 UTC) -> python -m src.main build
-#   slate-drift : 30 14 * * * (9:30am ET / 14:30 UTC) -> python -m src.main drift
+#   slate-build : 0 2,3 * * *    -> python -m src.main build --scheduled
+#   slate-drift : 30 13,14 * * * -> python -m src.main drift --scheduled
 #
-# Cron on Railway is UTC. ET shifts by an hour across DST, so revisit these
-# in March and November or accept the hour drift.
+# Cron on Railway is UTC-only. Each service fires at both UTC hours its
+# Eastern time can land on; --scheduled makes the job exit at once unless the
+# local hour matches slate.build_hour / slate.drift_hour in config.yaml. So the
+# build is 10pm ET and drift 9:30am ET all year, with no DST edits.
 
 [build]
 builder = "dockerfile"

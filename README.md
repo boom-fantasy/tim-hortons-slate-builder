@@ -85,11 +85,16 @@ Two cron services off the same image:
 
 | Service | Cron (UTC) | ET | Command |
 |---|---|---|---|
-| `slate-build` | `0 1 * * *` | 8:00 pm | `python -m src.main build` |
-| `slate-drift` | `30 14 * * *` | 9:30 am | `python -m src.main drift` |
+| `slate-build` | `0 2,3 * * *` | 10:00 pm | `python -m src.main build --scheduled` |
+| `slate-drift` | `30 13,14 * * *` | 9:30 am | `python -m src.main drift --scheduled` |
 
-Railway cron is UTC and ET shifts an hour across DST, so either revisit these
-in March and November or accept the drift.
+Railway cron is UTC-only, so each service fires at both UTC hours its Eastern
+time can fall on. `--scheduled` makes the job exit immediately unless the local
+hour matches `slate.build_hour` / `slate.drift_hour`, so exactly one of the two
+triggers does the work each day, and the times hold across daylight saving
+with nothing to change in March or November. The skipped trigger shows up in
+Railway as a run that exits in a second or two. Manual runs (no `--scheduled`)
+are never blocked.
 
 ---
 
@@ -217,13 +222,12 @@ lookup would break the match.
 ## Unpriced games: the historical fallback
 
 **Currently disabled** (`fallback.enabled: false`) for the start of the season.
-The lookback reaches a team's last 5 *completed* games, which in early October
-means preseason — prospect-heavy lineups, regulars on limited minutes. Estimates
-built on those prices would look confident and be wrong. Turn it on once teams
-have roughly 5 regular-season games in, around mid-October. Until then an
-unpriced game drops entirely, which is more honest than a bad tier.
+Its history comes from our own price store, which only starts filling on
+opening night, so no team has enough stored games until mid-October. Turn it on
+then. Until then an unpriced game drops entirely, which is more honest than a
+bad tier.
 
-Goalscorer props often are not posted at 8pm for next-day games. Rather than
+Goalscorer props often are not posted at 10pm for next-day games. Rather than
 losing those games entirely, the job estimates their players from recent prices.
 
 **It runs at the game level only.** The two kinds of absence mean opposite
@@ -234,10 +238,32 @@ things:
 | Game priced, player missing | The book judged every skater it expects to dress. Player is scratched or hurt. | Drop |
 | Game not priced at all | No information about any individual player. | Estimate |
 
-For each unpriced game, the job pulls both teams' last `fallback.lookback_games`
-completed fixtures, takes each player's **opening** price from those games,
-averages, and converts back to a tier. A player with only one prior game still
-gets estimated — one noisy price beats losing a star.
+For each unpriced game, the job reads both teams' last `fallback.lookback_games`
+games from the price store, averages each player's price across them, and
+converts back to a tier. A player priced in only one of those games still gets
+estimated. One noisy price beats losing a star.
+
+### The price store
+
+The API key has no access to `/fixtures/odds/historical`, so the service keeps
+its own record in a hidden `_price_history` tab (`sheets.price_history_tab`):
+`date, fixture_id, player_id, player, team, american_odds`.
+
+* **Both runs write to it**, whether or not the fallback is enabled. `build`
+  (10pm) records tomorrow's priced games. `drift` (9:30am) records today's games
+  again. That morning capture is what matters: a game unpriced at 10pm is
+  exactly the one the fallback will later have no other record of.
+* **One row per `(fixture_id, player_id)`, earliest capture wins.** The 10pm
+  price is kept over the 9:30am one for the same player. A later capture only
+  adds players who were missing the first time. Because we store whatever price
+  existed when we ran, there is no opening/closing choice.
+* **Only live prices go in.** Estimated players are never written back.
+* **Pruned each `build`, alongside the roster**, to `lookback_games` games per
+  team. Rows before `earliest_game_date` are dropped too.
+* **Thin-store guard.** A team is estimated only once the store holds
+  `fallback.min_stored_games` of its games. Below that the game is left out and
+  Slack says why (`Bruins (2 of 5 games stored)`). This stops a one-game average
+  going out while the config says five.
 
 Two implementation details worth knowing:
 
@@ -246,12 +272,11 @@ and +600 averages to 23.8% (+320), not 20.0% (+400) — nearly four points of
 probability, easily a different tier.
 
 **A player absent from their most recent game is dropped, not estimated.** Every
-completed game was priced, so that absence is a real scratch. Including a star
+stored game was priced, so that absence is a real scratch. Including a star
 who does not dress hands the user a pick with zero chance, which is worse than
-leaving out a star who would have played. The only games skipped by this check
-are ones whose odds we could not *retrieve* — an API error or a fixture with no
-retention tells us nothing about anyone, so the check falls to the next game
-back.
+leaving out a star who would have played. Games we never *captured* (unpriced at
+both runs, or a failed run) tell us nothing about anyone. They are simply
+absent from the store, so the check falls to the next game back.
 
 **Preseason is excluded from the lookback.** Exhibition lineups are full of
 prospects who will not be on the roster and regulars play limited minutes, so
@@ -259,10 +284,8 @@ those prices are a poor basis for regular-season tiering — a confident-looking
 estimate built on them is worse than dropping the game.
 `fallback.earliest_game_date` sets a floor at the regular-season opener, which
 works regardless of whether the feed labels season type;
-`fallback.exclude_season_types` is a second line of defence for feeds that do.
-Filtering happens before the lookback limit is applied, so a team whose last
-five games were exhibitions reaches further back for real ones rather than
-coming back empty.
+`fallback.exclude_season_types` is a second line of defence: prices from
+fixtures the feed labels `Preseason` are never written to the store.
 
 This self-heals. On opening night no team has eligible history, so unpriced
 games drop; by mid-October everyone has a full window and the fallback is
@@ -277,8 +300,8 @@ estimated, the summary flags that the projection is correspondingly softer.
 Nothing about an estimate contradicts itself — it produces a plausible number,
 the sheet tiers it, and without a check you would never learn it was wrong. So
 `build` logs every estimate to a hidden `_estimate_log` tab, and the 9:30am
-`drift` run fills in the actual opening price once the market posts. The 9:30am
-comparison is opener-against-opener, which is the like-for-like benchmark: a
+`drift` run fills in the actual price once the market posts. The comparison is
+against a morning price, which is the closest like-for-like benchmark we get: a
 price closer to puck drop has absorbed confirmed goalies and lineup news that
 the estimate never had access to, so a gap against it would mix estimation error
 with market movement you cannot separate out.
@@ -344,17 +367,15 @@ setting and the job handles it.
   anyone shorter than +250 no longer applies: those stars belong in tier 1 now.
 - **The fallback is off** until teams have ~5 regular-season games behind them
   (mid-October). Flip `fallback.enabled` then.
-- **8 pm coverage is unverified.** Goalscorer props often do not post until the
+- **10 pm coverage is unverified.** Goalscorer props often do not post until the
   morning of the game. The Slack summary reports coverage (`6 of 10 games
   priced`) every night, so the first week of runs answers this empirically.
   Partial coverage is not a random subset — early-priced games skew toward
   marquee matchups with higher totals — so the config drops unpriced games
   entirely rather than writing a partial pool, and warns below 80% coverage.
-- **The opening-line field is unverified.** `fallback.line_type: opening` reads
-  the opening price from `/api/v3/fixtures/odds/historical`. Where that is
-  exposed differs by feed — sometimes a field on the row, sometimes the first
-  entry of a timeseries. Both shapes are handled and it falls back to the
-  current price, but confirm against a real payload before relying on it.
+- **Historical odds are not on our API key.** `/api/v3/fixtures/odds/historical`
+  returns `Insufficient permissions`, which is why the fallback reads from the
+  self-built price store instead.
 - **Estimate accuracy needs a few weeks of data** before the rollup means
   anything. Check `accuracy` after the first couple of weeks and decide then
   whether the fallback is earning its place.

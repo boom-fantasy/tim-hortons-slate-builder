@@ -80,8 +80,8 @@ odds:
 optic_odds:
   base_url: https://api.opticodds.com
   sport: hockey
-  league: usa_-_nhl          # VERIFY
-  market: player_goals       # VERIFY — may be player_to_score_anytime
+  league: nhl                # verified 2026-09-22 via /api/v3/leagues
+  market: anytime_goal_scorer  # verified 2026-09-22 at DraftKings (player_goals is the O/U variant)
   timeout_seconds: 30
   max_retries: 3
 
@@ -104,14 +104,33 @@ slate:
   # the 1-correct bucket, so the tail matters more than it did last season.
   team_concentration_warn: 0.60
 
-  # Timezone used to decide which calendar day "tomorrow" is.
+  # Timezone used to decide which calendar day "tomorrow" is, and which local
+  # day a game belongs to.
   timezone: America/New_York
+
+  # Local hours (in `timezone`) the scheduled runs happen. Railway cron is
+  # UTC-only, so each service is scheduled at BOTH UTC hours its local time
+  # can fall on, and runs started with --scheduled skip the one that does not
+  # match today. Result: same local time all year, nothing to change at DST.
+  #
+  #   build 22 (10pm ET) -> cron  0 2,3 * * *   build --scheduled
+  #   drift  9 (9:30am)  -> cron 30 13,14 * * * drift --scheduled
+  #
+  # Changing an hour here means changing the cron hours to match: they are
+  # this hour +4 and +5 for Eastern.
+  build_hour: 22
+  drift_hour: 9
 
 # -----------------------------------------------------------------------------
 # Historical fallback
 #
 # When a whole game has no goalscorer market at pull time, estimate its players
 # from their recent prices instead of dropping them.
+#
+# Recent prices come from our own store (sheets.price_history_tab), not the
+# API — the key has no access to historical odds. Both build and drift write to
+# it every run whether or not this is enabled, so the store is filling up while
+# the fallback is off.
 #
 # This runs ONLY at the game level. If a game IS priced and a player is simply
 # absent from it, that absence is a real signal — DraftKings priced everyone
@@ -121,29 +140,33 @@ slate:
 fallback:
   # OFF for the start of the 2026-27 season.
   #
-  # The lookback reaches a team's last 5 COMPLETED games, which in early
-  # October means preseason: prospect-heavy lineups and regulars on limited
-  # minutes. Those prices are a bad basis for regular-season tiering, and the
-  # fallback would produce confident-looking estimates from them.
+  # The store only starts filling on opening night, so for the first couple of
+  # weeks no team has min_stored_games in it and the fallback would decline
+  # every game anyway (and say so in Slack).
   #
-  # Turn back on once teams have ~5 regular-season games in — mid-October.
+  # Turn on once teams have ~5 regular-season games in — mid-October.
   # An unpriced game drops entirely while this is off, which is more honest
   # than a wrong tier.
   enabled: false
 
-  # How many of the team's recent completed games to look back over.
+  # How many of the team's recent stored games to look back over.
   # Fewer is noisier; more washes out line changes and role shifts, which move
-  # goalscorer prices a lot. Any number of games from 1 to this is usable — a
-  # player with a single prior price still gets estimated.
+  # goalscorer prices a lot. Also sets how much the store keeps: it is pruned
+  # to this many games per team.
   lookback_games: 5
 
-  # Which price to take from each historical game.
+  # A team is only estimated once the store holds at least this many of its
+  # games. Below that the game is left out and Slack says why ("Bruins: 2 of 5
+  # games stored"), rather than quietly averaging over one game.
   #
-  # "opening" is the right analogue for what we are estimating. A closing line
-  # reflects confirmed goalies and lineups — information we do not have at 8pm
-  # the night before — so using it would make the estimate look sharper than
-  # the situation actually supports.
-  line_type: opening        # opening | closing
+  # This is a TEAM-level gate on how much history exists. Within a team that
+  # passes it, a player priced in fewer of those games (a call-up, someone
+  # back from injury) is still estimated from however many they have.
+  #
+  # The price stored per game is the earliest one we captured — normally the
+  # 10pm build, else the 9:30am drift run. There is no opening/closing choice
+  # any more; we keep whatever existed when we ran.
+  min_stored_games: 2        # TEMPORARY (set 2026-09-22) — revisit once `accuracy` has data
 
   # Require the player to have been priced in their most recent game.
   #
@@ -155,9 +178,9 @@ fallback:
   # would have played is a minor loss, while including one who does not dress
   # hands the user a pick with no chance of hitting.
   #
-  # Games whose odds we could not RETRIEVE (API error, no retention) are a
-  # different thing — that is our failure, not evidence about any player — so
-  # they are skipped and the check falls to the next game back.
+  # Games we never CAPTURED (unpriced at both runs, or a failed run) are a
+  # different thing — that is our gap, not evidence about any player — so they
+  # are simply absent from the store and the check falls to the next game back.
   require_recent_appearance: true
 
   # Ignore games before this date when looking back.
@@ -174,9 +197,9 @@ fallback:
   # Set to null to look back without a floor.
   earliest_game_date: "2026-09-29"
 
-  # Second line of defence, if the feed labels fixtures by season type. The date
-  # floor above is what actually does the work — this only helps if the field
-  # exists, which is unverified.
+  # Second line of defence: prices from fixtures with these season types are
+  # never written to the store. The feed labels NHL fixtures "Preseason" and
+  # "Playoffs" (seen 2026-09-22); matched case-insensitively.
   exclude_season_types: [preseason, exhibition, prospect]
 
   # Appended to the player's name in the sheet so estimated rows are obvious on
@@ -237,7 +260,7 @@ sheets:
   # Hidden tab holding the estimate-accuracy log.
   #
   # `build` appends a row for every estimated player with the estimate it made.
-  # `drift` fills in the actual opening price once the market posts. The gap
+  # `drift` fills in the actual price once the market posts. The gap
   # between the two is the only evidence you get about whether the historical
   # fallback is any good — without it the estimates look plausible and nothing
   # ever contradicts them.
@@ -245,8 +268,14 @@ sheets:
   # Run `python -m src.main accuracy` to roll it up.
   estimate_log_tab: "_estimate_log"
 
+  # Hidden tab holding every live goalscorer price we have captured — the
+  # fallback's only source of history. Columns: date, fixture_id, player_id,
+  # player, team, american_odds. One row per (fixture_id, player_id), earliest
+  # capture kept. Pruned each build to lookback_games games per team.
+  price_history_tab: "_price_history"
+
   # The master workbook. Share it with the service account as an Editor.
-  spreadsheet_id: ""          # FILL IN
+  spreadsheet_id: "1Q3esYoc8VjfPQBj8hd9zt1JeCMr0Ws8LuloxYCjhgVo"
 
   # Tab that gets copied for each night's slate. Keep its formulas intact —
   # the script writes only columns A-D and lets the sheet compute the rest.
@@ -272,7 +301,7 @@ sheets:
 # -----------------------------------------------------------------------------
 slack:
   enabled: true
-  channel: "#hockey-challenge"
+  channel: "#dfs-operations"
   # Bot token comes from the SLACK_BOT_TOKEN env var, never from this file.
 
 # -----------------------------------------------------------------------------
