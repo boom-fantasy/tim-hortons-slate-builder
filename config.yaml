@@ -274,6 +274,13 @@ sheets:
   # capture kept. Pruned each build to lookback_games games per team.
   price_history_tab: "_price_history"
 
+  # Hidden tab holding every morning drift check, kept all season (never
+  # pruned). One row per locked player per day: date, player, team, source
+  # (live / est), locked_odds, locked_tier, current_odds, current_tier,
+  # prob_move (signed share, e.g. -0.25), flag (moved / not_priced / blank).
+  # Every player is logged, not only flagged ones, so rates have a denominator.
+  drift_log_tab: "_drift_log"
+
   # The master workbook. Share it with the service account as an Editor.
   spreadsheet_id: "1Q3esYoc8VjfPQBj8hd9zt1JeCMr0Ws8LuloxYCjhgVo"
 
@@ -316,3 +323,7 @@ drift_check:
   enabled: true
   # Flag a player whose true probability moved more than this share.
   move_threshold: 0.20
+
+  # Post the morning drift summary to Slack. Off: the run still records prices,
+  # scores estimates and logs the movement check — it just does it quietly.
+  slack: false

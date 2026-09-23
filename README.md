@@ -382,4 +382,11 @@ setting and the job handles it.
 - **Drift is measurement only.** The slate locks at generation, so the morning
   run cannot fix anything. It exists to quantify how often a locked slate had a
   player scratched or repriced, which is the error term for reconciling
-  projected against actual.
+  projected against actual. It runs quietly: it records the morning prices,
+  scores the estimates and logs the movement check, but posts nothing to Slack
+  unless `drift_check.slack` is turned on. Every locked player's result is
+  kept all season in the hidden `_drift_log` tab (never pruned), one row per
+  player per day, with a `flag` of `moved` or `not_priced`, so stale-slate
+  rates can be measured over the season. It also runs when the previous
+  night's build wrote no slate, because that is the morning whose prices the
+  fallback needs most.
