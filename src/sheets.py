@@ -108,6 +108,42 @@ class SheetsWriter:
                 return props.get("sheetId")
         return None
 
+    def tab_titles(self) -> list[str]:
+        return [
+            sh["properties"]["title"] for sh in self._spreadsheet().get("sheets", [])
+        ]
+
+    def spreadsheet_title(self) -> str:
+        return self._spreadsheet().get("properties", {}).get("title", "")
+
+    def delete_tabs(self, titles: list[str]) -> list[str]:
+        """Delete the named tabs that exist. Returns the ones deleted."""
+        spreadsheet = self._spreadsheet()
+        requests_, deleted = [], []
+        for title in titles:
+            tab_id = self._tab_id(spreadsheet, title)
+            if tab_id is not None:
+                requests_.append({"deleteSheet": {"sheetId": tab_id}})
+                deleted.append(title)
+        if requests_:
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id, body={"requests": requests_}
+            ).execute()
+        return deleted
+
+    def read_values(self, a1_range: str) -> list[list]:
+        resp = self.service.spreadsheets().values().get(
+            spreadsheetId=self.spreadsheet_id, range=a1_range
+        ).execute()
+        return resp.get("values", [])
+
+    def tab_url(self, title: str) -> str:
+        tab_id = self._tab_id(self._spreadsheet(), title)
+        return (
+            f"https://docs.google.com/spreadsheets/d/{self.spreadsheet_id}"
+            f"/edit#gid={tab_id}"
+        )
+
     # -- public ------------------------------------------------------------
 
     def write_slate(
@@ -549,10 +585,12 @@ class SheetsWriter:
             for p in estimated
         ]
 
+        # RAW: USER_ENTERED would turn the date into a Sheets date, which can
+        # read back in a different format and miss read_estimate_log's filter.
         self.service.spreadsheets().values().append(
             spreadsheetId=self.spreadsheet_id,
             range=f"'{title}'!A:I",
-            valueInputOption="USER_ENTERED",
+            valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
             body={"values": rows},
         ).execute()

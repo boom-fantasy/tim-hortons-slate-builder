@@ -15,6 +15,9 @@ Commands:
   drift      Compare a written slate against current odds. Measurement only —
              the slate is locked at generation and cannot be changed.
 
+  check      Pre-flight. Tests every connection; with --sample, rehearses a
+             full build + drift into TEST tabs and reads everything back.
+
   simulate   Run the projection against a CSV of odds with no network and no
              writes. Useful for retuning tier bands offline.
 """
@@ -245,6 +248,16 @@ def cmd_build(args, cfg) -> int:
         _alert_failure(args, cfg, "odds pull", str(exc))
         return 1
 
+    return _publish(args, cfg, client, build, date_iso, tab_name)
+
+
+def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
+    """Everything after the odds pull: tier, write the sheet, roster, paste
+    tab, price store, estimate log, Slack.
+
+    Split out of cmd_build so `check --sample` can push a sample slate through
+    exactly the code the nightly job runs.
+    """
     eligible = build.eligible
     log.info(
         "%d player(s) pulled, %d eligible, %d outside the bands",
@@ -710,6 +723,16 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("accuracy", help="roll up the estimate-accuracy log")
     p.set_defaults(func=cmd_accuracy)
+
+    from .check import cmd_check
+
+    p = sub.add_parser("check", help="pre-flight: test connections, optionally rehearse")
+    p.add_argument("--sample", action="store_true",
+                   help="also run a full build + drift rehearsal into TEST tabs")
+    p.add_argument("--post-slack", action="store_true",
+                   help="with --sample: post the sample summary to Slack too")
+    p.add_argument("--cleanup", action="store_true", help="delete the TEST tabs")
+    p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("simulate", help="project a slate from a CSV, offline")
     p.add_argument("csv", help="CSV with player,team,opponent,odds")
