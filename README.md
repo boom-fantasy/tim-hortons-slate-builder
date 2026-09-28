@@ -102,7 +102,10 @@ are never blocked.
 
 A failed build posts **"Slate build failed during _stage_"** to Slack with the
 error. A successful one posts the summary with **Open slate** / **Paste tab**
-buttons. If neither has arrived by about 10:05pm ET, treat it as a failure.
+buttons. If neither has arrived by about 10:05pm ET, treat it as a failure —
+**unless there are no NHL games the next day.** An off-day is not a failure: no
+slate is built and nothing posts, except a short *"no games on …"* message if
+the nightly roster check found a trade or a new player.
 
 ### 1. Read the stage, fix the cause
 
