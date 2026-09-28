@@ -98,9 +98,65 @@ are never blocked.
 
 ---
 
+## When a build fails
+
+A failed build posts **"Slate build failed during _stage_"** to Slack with the
+error. A successful one posts the summary with **Open slate** / **Paste tab**
+buttons. If neither has arrived by about 10:05pm ET, treat it as a failure.
+
+### 1. Read the stage, fix the cause
+
+| Stage in the alert | Usual cause | Fix before re-running |
+|---|---|---|
+| `odds pull` | OpticOdds down, or the key rejected (`401`) | Wait a few minutes, or check `OPTICODDS_API_KEY` |
+| `slate assembly` — "No eligible players … 0 with a market" | Props not posted yet | Wait, then re-run later (11pm, or the morning) |
+| `sheet write` — "permission denied" | Service account lost access | Re-share the workbook with it as an Editor |
+| `sheet write` — "already exists" | A tab for that date is already there | Re-run with `--overwrite` |
+| No message at all | Run did not happen, or Slack failed | Railway → `slate-build` → Deployments → logs |
+
+A summary that arrived but has no **Paste tab** button means the slate was
+written and the paste step failed; the log says why. Re-run with `--overwrite`.
+
+### 2. Re-run
+
+**Before 11pm ET — just redeploy.** `slate-build` → Deployments → latest →
+**Redeploy**. `--scheduled` lets a run through any time in the 10pm hour, so no
+settings change is needed.
+
+**After 11pm ET — run it without `--scheduled`.** Set `slate-build`'s Custom
+Start Command to one of these (saving redeploys and runs it), then set it back
+to `python -m src.main build --scheduled` once it succeeds:
+
+| When | Start command |
+|---|---|
+| Before midnight ET | `python -m src.main build --overwrite` |
+| After midnight ET | `python -m src.main build --date YYYY-MM-DD --overwrite` (the game date) |
+
+`build` targets **tomorrow** by default, so after midnight it would build the
+wrong day without `--date`. `--overwrite` replaces a partial tab; drop it if you
+want the run to refuse to touch an existing one.
+
+**Do not forget to set the start command back.** Left without `--scheduled`,
+every future redeploy runs a real build.
+
+Re-running is safe: the roster, price store and drift log de-duplicate. The one
+exception is the estimate log, which gets a second copy of that night's
+estimates — only relevant once the fallback is on.
+
+### A failed drift run
+
+Not urgent: it measures, it does not affect the slate. Re-run any time the same
+day with `python -m src.main drift` (no `--scheduled`), then set the command
+back. The drift log will not double-count a day.
+
+---
+
 ## Commands
 
 ```bash
+python -m src.main check                 # test OpticOdds, Google, Slack; writes nothing
+python -m src.main check --sample        # + full build/drift rehearsal into TEST tabs
+python -m src.main check --cleanup       # remove the TEST tabs
 python -m src.main discover              # league slugs + market keys
 python -m src.main inspect               # dump raw odds payload
 python -m src.main build --dry-run       # full pull + projection, writes nothing
