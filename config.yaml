@@ -209,27 +209,27 @@ fallback:
 # -----------------------------------------------------------------------------
 # Season roster
 #
-# Every player seen gets kept for the season so the nightly paste has a stable
-# shape. Anyone without a usable price on a given night is tier 4 — listed but
-# not selectable — which is what the contest sheet expects.
+# Once a player is on a team's list they stay on it for the whole season,
+# priced or not — the contest sheet looks players up by name, and a name that
+# vanished would break its formulas. Anyone without a usable price on a given
+# night is tier 4 (listed, not selectable). Tier 4 lists grow over the season;
+# that is expected.
+#
+# The ONLY way off a team's list is a team change: the player moves to the new
+# team's list the same night, and the Slack summary reports it.
 # -----------------------------------------------------------------------------
 roster:
   enabled: true
 
-  # Seed each team's roster from the players endpoint on first sight, so the
-  # very first slates already carry tier 4s instead of accreting them over
-  # several weeks.
+  # Sync every team's list from the players endpoint each night (all 32 teams,
+  # not only those playing). Adds new players (call-ups, signings — listed in
+  # Slack), moves traded players to their new team (listed in Slack), never
+  # removes anyone. Off means the roster only learns players as they get priced.
   seed_from_api: true
 
   # Goalies never carry a goalscorer price, so they would sit at tier 4 all
-  # season doing nothing. Dropped at seed time where the feed exposes position.
+  # season doing nothing. Skipped by the sync where the feed exposes position.
   exclude_positions: [G, GOALIE, GOALTENDER]
-
-  # Drop an api-sourced player after this many days with no price. They are
-  # re-added automatically the first night they are priced again, so this only
-  # controls list length — it never affects whether someone is correctly tier 4.
-  # Manually added players are never pruned.
-  prune_after_days: 30
 
   # Warn when a hand-added player has never matched a priced player after this
   # many days. A typo'd name looks identical to a player who simply is not being

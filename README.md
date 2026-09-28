@@ -217,20 +217,31 @@ the job keeps a season-long roster and projects each night's tiers onto it.
 entries, one of which never matches a price again and sits at tier 4 for the
 rest of the season.
 
-**Seeding.** On a team's first appearance the roster is filled from
-`/api/v3/players` so early slates already carry their tier 4s instead of
-accreting them over weeks. Goalies are excluded — they never carry a
-goalscorer price.
+**Nobody is ever removed.** The contest sheet looks players up by name from
+the tiers tab, so a name that disappeared from a team's list would break those
+formulas. Once a player is on a team's list they stay for the season, priced or
+not, and tier 4 lists grow as the season goes on. That is intended.
 
-**Pruning.** An api-sourced player with no price for `prune_after_days` (30)
-drops off the list, and is re-added automatically the first night they are
-priced again. Only teams that played that night are pruned, so a team on a long
-break does not age out. Pruning never affects whether someone is *correctly*
-tier 4 — anyone unpriced is 4 regardless — it only controls list length.
+**Nightly sync.** Every build pulls all 32 teams' lists from `/api/v3/players`
+(not only tonight's teams) and applies three rules:
+
+* **New player** on a team list (call-up, signing): added, and listed in Slack
+  under *New to roster*. A team's very first load is summarised in one line
+  instead of listing hundreds of names.
+* **Player now listed on a different team** (trade, waiver claim): moved off
+  the old team's list and onto the new one that night, listed in Slack under
+  *Team change*. This is the only way a player leaves a team's list.
+* **Player missing from the feed** (sent down, injured, released): left exactly
+  where they are.
+
+A player listed on two teams at once (the feed mid-trade) is left alone that
+night rather than moved, so a glitch cannot bounce them back and forth. A
+priced player whose team differs from the roster is moved the same way.
+Goalies are excluded — they never carry a goalscorer price.
 
 **Manual additions.** The `_roster` tab is safe to hand-edit: add a row with the
 team and player name, leave `player_id` blank, set `source` to `manual`. Those
-rows are never pruned and never overwritten. They match on a normalised name
+rows are never removed and never overwritten. They match on a normalised name
 until the job sees a priced player with that name, then the id is backfilled and
 they behave like any other entry.
 
