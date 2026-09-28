@@ -384,7 +384,13 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
         try:
             from . import roster as roster_mod
 
+            # Every team with a game on the slate date — including games with no
+            # market. Their players have no tier, so the paste tab lists them all
+            # as 4: out of the contest, but the team's column is still there for
+            # the contest sheet's lookups.
             teams_playing = {p.team for p in build.players if p.team}
+            for fx in build.fixtures:
+                teams_playing.update(t for t in (fx.home_team, fx.away_team) if t)
             stored = writer.read_roster()
             roster_changes = roster_mod.RosterChanges()
 

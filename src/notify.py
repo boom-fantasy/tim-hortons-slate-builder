@@ -220,8 +220,8 @@ def slate_summary(
 
     if build.dropped_fixtures:
         alerts.append(
-            f":grey_question: Dropped (no market, no usable history): "
-            f"{', '.join(build.dropped_fixtures)}"
+            f":grey_question: No odds — every player listed as tier 4 in the "
+            f"paste tab (out of the contest): {', '.join(build.dropped_fixtures)}"
         )
 
     if roster_changes is not None:
