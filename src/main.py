@@ -264,6 +264,30 @@ def cmd_build(args, cfg) -> int:
     return _publish(args, cfg, client, build, date_iso, tab_name)
 
 
+def _roster_only(cfg, client, date_iso: str) -> int:
+    """Off-day: sync the season roster and report any changes. Nothing else."""
+    if not (cfg.roster.enabled and cfg.roster.seed_from_api):
+        return 0
+    try:
+        from . import roster as roster_mod
+        from .sheets import SheetsWriter
+
+        writer = SheetsWriter(cfg)
+        changes = roster_mod.RosterChanges()
+        stored = roster_mod.sync_teams(client, cfg, writer.read_roster(), changes)
+        stored, changes = roster_mod.reconcile(cfg, stored, [], changes=changes)
+        writer.write_roster(stored)
+    except Exception as exc:
+        log.exception("off-day roster sync failed")
+        notify.failure(cfg, "off-day roster sync", str(exc))
+        return 1
+    try:
+        notify.roster_only(cfg, date_iso, changes)
+    except Exception:
+        log.exception("slack notification failed (roster was still updated)")
+    return 0
+
+
 def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
     """Everything after the odds pull: tier, write the sheet, roster, paste
     tab, price store, estimate log, Slack.
@@ -276,6 +300,15 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
         "%d player(s) pulled, %d eligible, %d outside the bands",
         len(build.players), len(eligible), len(build.out_of_band),
     )
+
+    if build.fixtures_total == 0:
+        # An off-day (no NHL games on the slate date), not a failure. No slate,
+        # no failure alert — but the roster check still runs, so trades and
+        # call-ups are not held back to the next game night.
+        log.info("no games on %s — no slate to build", date_iso)
+        if args.dry_run:
+            return 0
+        return _roster_only(cfg, client, date_iso)
 
     if not eligible:
         msg = (

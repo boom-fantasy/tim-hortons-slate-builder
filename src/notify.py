@@ -90,6 +90,60 @@ def _alert_sections(alerts: list[str]) -> list[dict]:
     return [{"type": "section", "text": {"type": "mrkdwn", "text": t}} for t in texts]
 
 
+def roster_alerts(changes) -> list[str]:
+    """Slack lines for roster changes. Every change is listed in full, not
+    truncated: each one is something to mirror in the internal sheet, whose
+    lookups break on a name that is missing or on the wrong team."""
+    out: list[str] = []
+    if changes.moved:
+        moves = "\n".join(
+            f"• {name}: {old} → {new}" for name, old, new in changes.moved
+        )
+        out.append(
+            f":arrows_counterclockwise: *Team change* — removed from the old "
+            f"team, added to the new one:\n{moves}"
+        )
+    if changes.added:
+        adds = "\n".join(f"• {e.name} ({e.team})" for e in changes.added)
+        out.append(f":new: *New to roster:*\n{adds}")
+    if changes.seeded:
+        n = sum(changes.seeded.values())
+        out.append(
+            f":clipboard: Rosters loaded for the first time: "
+            f"{len(changes.seeded)} team(s), {n} player(s)"
+        )
+    if changes.manual_unmatched:
+        out.append(
+            f":warning: Manual roster entries that have never matched a priced "
+            f"player (check spelling): "
+            f"{', '.join(changes.manual_unmatched)}"
+        )
+    if changes.manual_linked:
+        out.append(
+            f":white_check_mark: Manual entries now linked: "
+            f"{', '.join(changes.manual_linked)}"
+        )
+    return out
+
+
+def roster_only(cfg: Config, date_iso: str, changes) -> None:
+    """Off-day message: no games, so no slate — but the nightly roster check
+    still ran, and anything it changed has to be reported tonight or it never
+    will be (tomorrow's check will see nothing new). Silent when nothing changed.
+    """
+    # Only real changes. A standing warning (a hand-added row that never
+    # matched) repeats in every game-night summary and is no reason to post.
+    lines = roster_alerts(changes) if changes.any else []
+    if not lines:
+        log.info("no games on %s and no roster changes — nothing to post", date_iso)
+        return
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text":
+               f"*Hockey Challenge — no games on {date_iso}.* No slate tonight; "
+               f"roster changes found by the nightly check:"}}]
+    blocks.extend(_alert_sections(lines))
+    _send(cfg, blocks, f"No games on {date_iso} — roster changes: {len(lines)}")
+
+
 def slate_summary(
     cfg: Config,
     build: SlateBuild,
@@ -170,38 +224,8 @@ def slate_summary(
             f"{', '.join(build.dropped_fixtures)}"
         )
 
-    # Roster movement. Every change is listed in full, not truncated: each one
-    # is something to mirror in the internal sheet, whose lookups break on a
-    # name that is missing or on the wrong team.
     if roster_changes is not None:
-        if roster_changes.moved:
-            moves = "\n".join(
-                f"• {name}: {old} → {new}" for name, old, new in roster_changes.moved
-            )
-            alerts.append(
-                f":arrows_counterclockwise: *Team change* — removed from the old "
-                f"team, added to the new one:\n{moves}"
-            )
-        if roster_changes.added:
-            adds = "\n".join(f"• {e.name} ({e.team})" for e in roster_changes.added)
-            alerts.append(f":new: *New to roster:*\n{adds}")
-        if roster_changes.seeded:
-            n = sum(roster_changes.seeded.values())
-            alerts.append(
-                f":clipboard: Rosters loaded for the first time: "
-                f"{len(roster_changes.seeded)} team(s), {n} player(s)"
-            )
-        if roster_changes.manual_unmatched:
-            alerts.append(
-                f":warning: Manual roster entries that have never matched a priced "
-                f"player (check spelling): "
-                f"{', '.join(roster_changes.manual_unmatched)}"
-            )
-        if roster_changes.manual_linked:
-            alerts.append(
-                f":white_check_mark: Manual entries now linked: "
-                f"{', '.join(roster_changes.manual_linked)}"
-            )
+        alerts.extend(roster_alerts(roster_changes))
 
     concentration = team_concentration(build.eligible, cfg)
     hot_teams = [
