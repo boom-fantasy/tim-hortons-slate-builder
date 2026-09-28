@@ -78,6 +78,24 @@ class Report:
         return sum(1 for s, _n, _d in self.rows if s == "FAIL")
 
 
+def practice_cfg(cfg, post_slack: bool):
+    """The real config, unchanged except that every sheet tab is a TEST tab
+    and Slack only posts when asked. Used by `build --practice`."""
+    return dataclasses.replace(
+        cfg,
+        sheets=dataclasses.replace(
+            cfg.sheets,
+            tab_name_format=SLATE_TAB,
+            paste_tab_format=PASTE_TAB,
+            estimate_log_tab=HIDDEN_TABS["estimate_log"],
+            price_history_tab=HIDDEN_TABS["price_history"],
+            drift_log_tab=HIDDEN_TABS["drift_log"],
+        ),
+        roster=dataclasses.replace(cfg.roster, tab=HIDDEN_TABS["roster"]),
+        slack=dataclasses.replace(cfg.slack, enabled=post_slack and cfg.slack.enabled),
+    )
+
+
 def _test_cfg(cfg, post_slack: bool):
     """The real config with every sheet tab pointed at a TEST tab."""
     return dataclasses.replace(

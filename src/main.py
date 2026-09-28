@@ -231,6 +231,19 @@ def _alert_failure(args, cfg, stage: str, error: str) -> None:
 
 
 def cmd_build(args, cfg) -> int:
+    if getattr(args, "practice", False):
+        # Real odds, real pipeline, TEST tabs. The real slate/paste tabs,
+        # roster and price store are never touched, so the scheduled build
+        # that night runs exactly as it would have.
+        from .check import TEST_TABS, practice_cfg
+        from .sheets import SheetsWriter
+
+        cfg = practice_cfg(cfg, getattr(args, "post_slack", False))
+        deleted = SheetsWriter(cfg).delete_tabs(TEST_TABS)
+        log.info("practice run: writing to TEST tabs only%s",
+                 f" (replaced {len(deleted)} old TEST tab(s))" if deleted else "")
+        args.overwrite = True
+
     date_iso = _target_date(cfg, args.date)
     tab_name = datetime.strptime(date_iso, "%Y-%m-%d").strftime(
         cfg.sheets.tab_name_format
@@ -713,6 +726,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--overwrite", action="store_true", help="replace an existing tab")
     p.add_argument("--scheduled", action="store_true",
                    help="cron mode: run only during slate.build_hour local time")
+    p.add_argument("--practice", action="store_true",
+                   help="real odds, but write only to TEST tabs (real tabs untouched)")
+    p.add_argument("--post-slack", action="store_true",
+                   help="with --practice: also post the summary to Slack")
     p.set_defaults(func=cmd_build)
 
     p = sub.add_parser("drift", help="compare a locked slate against current odds")
