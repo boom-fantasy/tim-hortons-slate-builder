@@ -329,7 +329,10 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
 
         writer = SheetsWriter(cfg)
         result = writer.write_slate(
-            players=eligible,
+            # Everyone with odds. Out-of-band players (priced, but outside
+            # every tier band) sort to the bottom, where the template's own
+            # Tier formula decides how they show.
+            players=build.players,
             date_iso=date_iso,
             tab_name=tab_name,
             games_count=build.fixtures_with_market,

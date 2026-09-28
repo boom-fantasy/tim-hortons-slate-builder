@@ -278,7 +278,7 @@ def _sample_build(client, cfg, start_date: str, rep: Report):
     return build
 
 
-def _verify(writer, cfg, build, rep: Report) -> None:
+def _verify(writer, cfg, build, rep: Report, stored_after_build) -> None:
     """Read every TEST tab back and compare it with what was written."""
     import re
 
@@ -297,7 +297,8 @@ def _verify(writer, cfg, build, rep: Report) -> None:
     # Slate tab: rows, then the template cells around them.
     try:
         got = writer.read_slate(SLATE_TAB)
-        want = {(p.name + (marker if p.estimated else ""), p.american_odds) for p in eligible}
+        want = {(p.name + (marker if p.estimated else ""), p.american_odds)
+                for p in build.players}
         have = {(name, odds) for name, _t, _o, odds in got}
         if have == want:
             rep.ok("Slate tab rows", f"{len(got)} player rows read back exactly")
@@ -336,7 +337,7 @@ def _verify(writer, cfg, build, rep: Report) -> None:
         if "tier" in labels:
             col = chr(ord("A") + labels.index("tier"))
             values = writer.read_values(
-                f"'{SLATE_TAB}'!A{first}:{col}{first + len(eligible) - 1}")
+                f"'{SLATE_TAB}'!A{first}:{col}{first + len(build.players) - 1}")
             idx = labels.index("tier")
 
             def _digits(v) -> str:
@@ -353,6 +354,27 @@ def _verify(writer, cfg, build, rep: Report) -> None:
             else:
                 rep.fail("Sheet tiers match code",
                          f"{len(diffs)} differ (player, code, sheet): {diffs[:3]}")
+
+            # Players with odds outside every band: what does the template's
+            # Tier formula show for them? 4 is the goal. 1-3 would be a real
+            # problem — the template's tier summary would count them.
+            outside = [p.name + (marker if p.estimated else "")
+                       for p in build.players if p.tier is None]
+            shown = {sheet_tier.get(n, "") for n in outside}
+            if not outside:
+                rep.warn("Out-of-band rows", "sample had none to check")
+            elif shown <= {"4"}:
+                rep.ok("Out-of-band rows",
+                       f"{len(outside)} priced players outside the bands show as tier 4")
+            elif shown & {"1", "2", "3"}:
+                rep.fail("Out-of-band rows",
+                         f"template shows tier(s) {sorted(shown & {'1', '2', '3'})} for players "
+                         f"outside every band — its tier summary would count them")
+            else:
+                rep.warn("Out-of-band rows",
+                         f"{len(outside)} listed, but the template's Tier column shows "
+                         f"{sorted(shown) or ['blank']} rather than 4 — edit its Tier "
+                         f"formula to return 4 outside the bands if you want that")
         else:
             rep.warn("Sheet tiers match code", "no 'Tier' column in the header row to compare")
     except Exception as exc:
@@ -388,9 +410,11 @@ def _verify(writer, cfg, build, rep: Report) -> None:
     except Exception as exc:
         rep.fail("Paste tab", str(exc))
 
-    # Price store: live players only, text intact.
+    # Price store: live players only, text intact. Read straight after the
+    # build step: the drift run afterwards may add real prices for the same
+    # game once real odds exist, which is correct and would muddy this check.
     try:
-        stored = writer.read_price_history()
+        stored = stored_after_build
         want = {(r.date, r.fixture_id, r.player_id, r.american_odds)
                 for r in rows_from_build(build, cfg)}
         have = {(r.date, r.fixture_id, r.player_id, r.american_odds) for r in stored}
@@ -429,12 +453,13 @@ def _verify(writer, cfg, build, rep: Report) -> None:
         for r in mine:
             flag = r[9] if len(r) > 9 and r[9] else "unchanged"
             flags[flag] = flags.get(flag, 0) + 1
-        if len(mine) == len(eligible):
+        locked = len(build.players)   # every priced player is on the slate tab
+        if len(mine) == locked:
             rep.ok("Drift run + drift log",
                    f"{len(mine)} rows (one per locked player): {flags}")
         else:
             rep.fail("Drift run + drift log",
-                     f"expected {len(eligible)} rows for {build.date_iso}, found {len(mine)}")
+                     f"expected {locked} rows for {build.date_iso}, found {len(mine)}")
     except Exception as exc:
         rep.fail("Drift run + drift log", str(exc))
 
@@ -482,9 +507,10 @@ def cmd_check(args, cfg) -> int:
                     tcfg, client, build, build.date_iso, SLATE_TAB,
                 )
                 (rep.ok if rc == 0 else rep.fail)("Build publish path", f"exit code {rc}")
+                stored_after_build = twriter.read_price_history()
                 rc = main_mod.cmd_drift(SimpleNamespace(date=build.date_iso), tcfg)
                 (rep.ok if rc == 0 else rep.fail)("Drift run", f"exit code {rc}")
-                _verify(twriter, tcfg, build, rep)
+                _verify(twriter, tcfg, build, rep, stored_after_build)
                 print(f"\n  Look at: {twriter.tab_url(SLATE_TAB)}", flush=True)
                 print(f"           {twriter.tab_url(PASTE_TAB)}", flush=True)
                 print("  Remove the TEST tabs afterwards: python -m src.main check --cleanup",
