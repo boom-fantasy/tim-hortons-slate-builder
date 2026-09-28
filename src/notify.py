@@ -47,6 +47,49 @@ def _send(cfg: Config, blocks: list[dict], fallback: str) -> None:
         log.error("slack post failed: %s", body.get("error", resp.text[:200]))
 
 
+# Slack rejects a section whose text exceeds 3000 characters, and rejects the
+# whole message with it — so a long night of roster changes would lose the
+# summary entirely. Keep each section under this, and cap the block count
+# (Slack allows 50 per message; the summary uses a handful of its own).
+_SECTION_LIMIT = 2900
+_MAX_ALERT_BLOCKS = 40
+
+
+def _alert_sections(alerts: list[str]) -> list[dict]:
+    """Pack alert texts into as few sections as fit, splitting long ones on
+    line breaks. Anything past the block cap is summarised in one line."""
+    pieces: list[str] = []
+    for alert in alerts:
+        if len(alert) <= _SECTION_LIMIT:
+            pieces.append(alert)
+            continue
+        chunk = ""
+        for line in alert.split("\n"):
+            line = line[:_SECTION_LIMIT]
+            if chunk and len(chunk) + 1 + len(line) > _SECTION_LIMIT:
+                pieces.append(chunk)
+                chunk = line
+            else:
+                chunk = f"{chunk}\n{line}" if chunk else line
+        if chunk:
+            pieces.append(chunk)
+
+    texts: list[str] = []
+    for piece in pieces:
+        if texts and len(texts[-1]) + 1 + len(piece) <= _SECTION_LIMIT:
+            texts[-1] += "\n" + piece
+        else:
+            texts.append(piece)
+
+    if len(texts) > _MAX_ALERT_BLOCKS:
+        dropped = len(texts) - (_MAX_ALERT_BLOCKS - 1)
+        texts = texts[: _MAX_ALERT_BLOCKS - 1] + [
+            f"_…{dropped} more section(s) not shown — the full list is in the "
+            f"Railway log for tonight's slate-build run._"
+        ]
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": t}} for t in texts]
+
+
 def slate_summary(
     cfg: Config,
     build: SlateBuild,
@@ -127,14 +170,27 @@ def slate_summary(
             f"{', '.join(build.dropped_fixtures)}"
         )
 
-    # Roster movement. Trades are indistinguishable from a data glitch, so they
-    # are reported rather than applied silently.
+    # Roster movement. Every change is listed in full, not truncated: each one
+    # is something to mirror in the internal sheet, whose lookups break on a
+    # name that is missing or on the wrong team.
     if roster_changes is not None:
         if roster_changes.moved:
-            moves = ", ".join(
-                f"{name} {old} -> {new}" for name, old, new in roster_changes.moved
+            moves = "\n".join(
+                f"• {name}: {old} → {new}" for name, old, new in roster_changes.moved
             )
-            alerts.append(f":arrows_counterclockwise: Team change: {moves}")
+            alerts.append(
+                f":arrows_counterclockwise: *Team change* — removed from the old "
+                f"team, added to the new one:\n{moves}"
+            )
+        if roster_changes.added:
+            adds = "\n".join(f"• {e.name} ({e.team})" for e in roster_changes.added)
+            alerts.append(f":new: *New to roster:*\n{adds}")
+        if roster_changes.seeded:
+            n = sum(roster_changes.seeded.values())
+            alerts.append(
+                f":clipboard: Rosters loaded for the first time: "
+                f"{len(roster_changes.seeded)} team(s), {n} player(s)"
+            )
         if roster_changes.manual_unmatched:
             alerts.append(
                 f":warning: Manual roster entries that have never matched a priced "
@@ -170,9 +226,7 @@ def slate_summary(
     ]
 
     if alerts:
-        blocks.append(
-            {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(alerts)}}
-        )
+        blocks.extend(_alert_sections(alerts))
 
     # Tier table.
     tier_rows = ["```", f"{'Tier':<6}{'Pool':>6}{'Top':>9}{'Eff Top':>10}{'Avg':>9}"]

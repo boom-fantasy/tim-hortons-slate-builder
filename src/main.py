@@ -350,18 +350,16 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
     if cfg.roster.enabled:
         try:
             from . import roster as roster_mod
-            from .slate import _team_id_index
 
             teams_playing = {p.team for p in build.players if p.team}
             stored = writer.read_roster()
+            roster_changes = roster_mod.RosterChanges()
 
             if cfg.roster.seed_from_api:
-                stored = roster_mod.seed_teams(
-                    client, cfg, stored, _team_id_index(client, cfg), teams_playing
-                )
+                stored = roster_mod.sync_teams(client, cfg, stored, roster_changes)
 
             stored, roster_changes = roster_mod.reconcile(
-                cfg, stored, build.players, teams_playing
+                cfg, stored, build.players, changes=roster_changes
             )
             writer.write_roster(stored)
 

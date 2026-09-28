@@ -98,7 +98,6 @@ class RosterConfig:
     enabled: bool
     seed_from_api: bool
     exclude_positions: list[str]
-    prune_after_days: int
     manual_unmatched_warn_days: int
     tab: str
 
@@ -287,14 +286,6 @@ def _validate_slate(s: SlateConfig) -> list[str]:
 
 def _validate_roster(r: RosterConfig) -> list[str]:
     problems = []
-    if r.prune_after_days < 1:
-        problems.append("roster.prune_after_days must be >= 1")
-    if r.prune_after_days < 14:
-        problems.append(
-            f"roster.prune_after_days of {r.prune_after_days} is short — a player "
-            f"out with a typical injury would fall off the paste list and reappear "
-            f"when they return, which looks like a bug to whoever is pasting"
-        )
     if r.manual_unmatched_warn_days < 1:
         problems.append("roster.manual_unmatched_warn_days must be >= 1")
     return problems
@@ -357,7 +348,6 @@ def load(path: str | Path | None = None) -> Config:
             enabled=bool(rs.get("enabled", False)),
             seed_from_api=bool(rs.get("seed_from_api", True)),
             exclude_positions=[str(x).upper() for x in rs.get("exclude_positions", [])],
-            prune_after_days=int(rs.get("prune_after_days", 30)),
             manual_unmatched_warn_days=int(rs.get("manual_unmatched_warn_days", 14)),
             tab=str(rs.get("tab", "_roster")),
         )

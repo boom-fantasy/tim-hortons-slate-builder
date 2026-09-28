@@ -57,15 +57,17 @@ class RosterEntry:
 
 @dataclass
 class RosterChanges:
+    # Players new to an existing team list (call-ups, signings). Excludes a
+    # team's first load, which is counted in `seeded` instead.
     added: list[RosterEntry] = field(default_factory=list)
     moved: list[tuple[str, str, str]] = field(default_factory=list)  # name, from, to
-    pruned: list[RosterEntry] = field(default_factory=list)
+    seeded: dict[str, int] = field(default_factory=dict)             # team -> players
     manual_linked: list[str] = field(default_factory=list)
     manual_unmatched: list[str] = field(default_factory=list)
 
     @property
     def any(self) -> bool:
-        return bool(self.added or self.moved or self.pruned or self.manual_linked)
+        return bool(self.added or self.moved or self.seeded or self.manual_linked)
 
 
 def normalise_name(name: str) -> str:
@@ -99,18 +101,19 @@ def reconcile(
     cfg: Config,
     roster: list[RosterEntry],
     priced_players: list,          # list[Player] seen tonight, with player_id set
-    teams_playing: set[str],
     today: date | None = None,
+    changes: RosterChanges | None = None,
 ) -> tuple[list[RosterEntry], RosterChanges]:
     """Fold tonight's priced players into the season roster.
 
-    Returns the updated roster and a record of what changed. Only teams playing
-    tonight are touched — a team idle tonight tells us nothing about its roster,
-    so its entries are left alone and, importantly, not pruned.
+    Nobody is ever removed. The contest sheet looks players up by name, so a
+    player who vanished from the list would break its formulas; once a player
+    is on a team's list they stay on it for the season, priced or not. The
+    only way off a team is a team change, which moves them to the new team.
     """
     today = today or _today(cfg)
     today_iso = today.isoformat()
-    changes = RosterChanges()
+    changes = changes or RosterChanges()
 
     by_id = {e.player_id: e for e in roster if e.player_id}
     manual_by_name = {
@@ -133,7 +136,9 @@ def reconcile(
             manual = manual_by_name.get(normalise_name(p.name))
             if manual is not None:
                 manual.player_id = pid
-                manual.team = p.team
+                if manual.team != p.team and p.team:
+                    changes.moved.append((manual.name, manual.team, p.team))
+                    manual.team = p.team
                 manual.last_priced = today_iso
                 by_id[pid] = manual
                 del manual_by_name[normalise_name(p.name)]
@@ -162,31 +167,17 @@ def reconcile(
         entry.name = p.name
         entry.last_priced = today_iso
 
-    # Prune stale api-sourced entries, but only for teams that played tonight —
-    # otherwise an idle team's whole roster ages out over a long break.
-    cutoff = today - timedelta(days=cfg.roster.prune_after_days)
-    kept: list[RosterEntry] = []
-    for e in roster:
-        if e.is_manual or e.team not in teams_playing:
-            kept.append(e)
-            continue
-        last = _parse_date(e.last_priced) or _parse_date(e.first_seen)
-        if last is None or last >= cutoff:
-            kept.append(e)
-        else:
-            changes.pruned.append(e)
-
     # Hand-added rows that have never matched anything. A typo looks identical
     # to a player who is simply never priced, so surface it rather than let it
     # sit at tier 4 all season.
     warn_cutoff = today - timedelta(days=cfg.roster.manual_unmatched_warn_days)
-    for e in kept:
+    for e in roster:
         if e.is_manual and not e.player_id:
             added = _parse_date(e.first_seen)
             if added is None or added <= warn_cutoff:
                 changes.manual_unmatched.append(f"{e.name} ({e.team})")
 
-    return kept, changes
+    return roster, changes
 
 
 def build_paste_rows(
@@ -265,71 +256,102 @@ def build_paste_rows(
     return rows
 
 
-def seed_teams(
+def sync_teams(
     client,
     cfg: Config,
     roster: list[RosterEntry],
-    team_ids: dict[str, str],
-    teams_playing: set[str],
+    changes: RosterChanges,
     today: date | None = None,
 ) -> list[RosterEntry]:
-    """Populate any playing team that has no roster entries yet.
+    """Bring the roster in line with the feed's team lists, every night.
 
-    Runs once per team, the first night they appear. Seeded players carry no
-    last_priced date, so they are subject to the normal prune window — a
-    seeded player who never gets priced falls off after prune_after_days
-    rather than lingering all season.
+    Every team, not only tonight's, so a trade is caught the first night the
+    feed reflects it even if neither team plays. Three rules:
+
+      * A player on a team list we have never seen is added to that team.
+        On a team's very first load that is the whole list (counted in
+        `seeded`); after that it is a call-up or signing (in `added`).
+      * A player the feed now lists on a different team is MOVED: off the old
+        team's list, onto the new one, and reported.
+      * A player missing from the feed's lists (sent down, injured, released)
+        is left exactly where they are. Nobody is removed.
+
+    A player listed on two teams at once — the feed mid-trade — is left alone
+    that night rather than moved, so a glitch cannot bounce them back and
+    forth. A team whose list could not be fetched is simply skipped.
     """
     today = today or _today(cfg)
     today_iso = today.isoformat()
-
-    have_team = {e.team for e in roster}
-    known_ids = {e.player_id for e in roster if e.player_id}
     excluded = set(cfg.roster.exclude_positions)
 
-    for team in sorted(teams_playing):
-        if team in have_team:
-            continue
-        team_id = team_ids.get(team)
-        if not team_id:
-            log.warning("no team id for %s — cannot seed its roster", team)
-            continue
+    feed_team: dict[str, str] = {}
+    feed_name: dict[str, str] = {}
+    ambiguous: set[str] = set()
 
+    for team in client.teams():
+        team_name, team_id = team["name"], team["id"]
         try:
             records = client.players_for_team(team_id)
         except Exception:
-            log.exception("roster seed failed for %s", team)
+            log.exception("roster sync: could not fetch %s — skipped tonight", team_name)
             continue
-
-        added = 0
         for rec in records:
             pid = str(rec.get("id") or rec.get("player_id") or "").strip()
-            name = str(
-                rec.get("name")
-                or rec.get("display_name")
-                or rec.get("full_name")
-                or ""
-            ).strip()
-            if not pid or not name or pid in known_ids:
-                continue
-
+            name = str(rec.get("name") or rec.get("display_name")
+                       or rec.get("full_name") or "").strip()
             position = str(rec.get("position") or rec.get("position_abbr") or "").upper()
-            if position and position in excluded:
+            if not pid or not name or (position and position in excluded):
                 continue
+            if pid in feed_team and feed_team[pid] != team_name:
+                ambiguous.add(pid)
+            feed_team[pid] = team_name
+            feed_name[pid] = name
 
-            roster.append(
-                RosterEntry(
-                    team=team,
-                    player_id=pid,
-                    name=name,
-                    source=SOURCE_API,
-                    first_seen=today_iso,
-                    last_priced="",
-                )
-            )
-            known_ids.add(pid)
-            added += 1
+    for pid in ambiguous:
+        log.warning("roster sync: %s is listed on more than one team — not moved tonight",
+                    feed_name.get(pid, pid))
+        feed_team.pop(pid, None)
 
-        log.info("seeded %d player(s) for %s", added, team)
+    had_team = {e.team for e in roster}
+    by_id = {e.player_id: e for e in roster if e.player_id}
+    manual_by_key = {
+        (e.team, normalise_name(e.name)): e
+        for e in roster if e.is_manual and not e.player_id
+    }
+
+    for pid, team in feed_team.items():
+        entry = by_id.get(pid)
+        if entry is not None:
+            if entry.team != team:
+                changes.moved.append((entry.name, entry.team, team))
+                entry.team = team
+            continue
+
+        # A hand-added row on this team with this name: link it, don't duplicate.
+        manual = manual_by_key.pop((team, normalise_name(feed_name[pid])), None)
+        if manual is not None:
+            manual.player_id = pid
+            by_id[pid] = manual
+            changes.manual_linked.append(manual.name)
+            continue
+
+        entry = RosterEntry(
+            team=team, player_id=pid, name=feed_name[pid],
+            source=SOURCE_API, first_seen=today_iso, last_priced="",
+        )
+        roster.append(entry)
+        by_id[pid] = entry
+        if team in had_team:
+            changes.added.append(entry)
+        else:
+            changes.seeded[team] = changes.seeded.get(team, 0) + 1
+
+    for team, n in sorted(changes.seeded.items()):
+        log.info("roster: first load of %s — %d player(s)", team, n)
+    if changes.added:
+        log.info("roster: %d new player(s): %s", len(changes.added),
+                 ", ".join(f"{e.name} ({e.team})" for e in changes.added))
+    for name, old, new in changes.moved:
+        log.info("roster: %s moved %s -> %s", name, old, new)
 
     return roster

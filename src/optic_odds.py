@@ -202,6 +202,19 @@ class OpticOddsClient:
 
     # -- fixtures ----------------------------------------------------------
 
+    def teams(self) -> list[dict]:
+        """Every team in the league, as {id, name}. Teams with no players
+        (the feed keeps a few, e.g. relocated franchises) come back with an
+        empty player list and simply add nothing."""
+        payload = self.get(
+            "/api/v3/teams",
+            {"sport": self.cfg.optic_odds.sport, "league": self.cfg.optic_odds.league},
+        )
+        return [
+            {"id": str(r["id"]), "name": str(r["name"])}
+            for r in self._records(payload) if r.get("id") and r.get("name")
+        ]
+
     def players_for_team(self, team_id: str) -> list[dict]:
         """Full roster for a team.
 
