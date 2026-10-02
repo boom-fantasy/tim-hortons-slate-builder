@@ -98,6 +98,20 @@ are never blocked.
 
 ---
 
+## Sportsbooks
+
+Odds come from one primary book (`odds.sportsbook`, DraftKings) with backups
+(`odds.backup_sportsbooks`, FanDuel) tried **per game, in order**, only when
+every earlier book has no market for that game. A game is always priced by a
+single book — never a mix — so players in the same game are compared on one set
+of prices. The Slack summary names any game priced by a backup.
+
+The vig removed (`odds.devig`, 6%) is one number for all books. DraftKings and
+FanDuel goalscorer markets carry similar margins, so a backup-priced game tiers
+slightly differently at most.
+
+---
+
 ## When a build fails
 
 A failed build posts **"Slate build failed during _stage_"** to Slack with the

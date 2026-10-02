@@ -63,8 +63,16 @@ odds:
   # typically carry 5-8%. Lower this if you switch to a sharper book.
   devig: 0.06
 
-  # Sportsbook key as OpticOdds names it.
-  sportsbook: fanduel        # TEMPORARY 2026-10-01: DraftKings had no props for 10/02. Was draftkings.
+  # Primary sportsbook, as OpticOdds names it. Every game is priced from this
+  # book when it has a market for that game.
+  sportsbook: draftkings
+
+  # Fallbacks, tried in order, PER GAME, only when every book before them has
+  # no market for that game. A game is always priced entirely by one book —
+  # never a mix — so players in the same game are compared on one set of
+  # prices. Games priced by a backup are named in the Slack summary.
+  # (2026-10-01: DraftKings posted nothing for 10/02; FanDuel had full rosters.)
+  backup_sportsbooks: [fanduel]
 
 # -----------------------------------------------------------------------------
 # OpticOdds lookups
