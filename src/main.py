@@ -340,6 +340,8 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
                 f"  Left out (scratched last game): "
                 f"{len(build.dropped_recent_absence)}"
             )
+        if build.backup_priced:
+            print(f"  From backup book: {', '.join(build.backup_priced)}")
         for note in build.fallback_notes:
             print(f"  Not estimated: {note}")
         if build.unresolved_team:

@@ -49,6 +49,9 @@ class SlateBuild:
     # Priced players whose team could not be resolved from either roster.
     unresolved_team: list[str] = field(default_factory=list)
 
+    # Games the primary book had no market for, priced by a backup book.
+    backup_priced: list[str] = field(default_factory=list)
+
     fixtures: list[Fixture] = field(default_factory=list)
 
     @property
@@ -200,6 +203,59 @@ def _team_id_index(client: OpticOddsClient, cfg: Config) -> dict[str, str]:
     return index
 
 
+def _parse_game(client, fixture: Fixture, rows: list[dict], label: str,
+                unresolved: list[str]) -> tuple[list[Player], int]:
+    """Turn one book's raw rows for one game into Players. Returns the players
+    and how many rows were skipped."""
+    yes_rows = [row for row in rows if _is_yes_side(row)]
+    teams_by_pid = _player_teams(client, fixture) if yes_rows else {}
+
+    players: list[Player] = []
+    skipped = 0
+    for row in yes_rows:
+        price = _extract_price(row)
+        name = _extract_player_name(row)
+
+        if price is None or not name:
+            skipped += 1
+            continue
+
+        if price <= 0:
+            # Not a realistic anytime-goalscorer price; almost certainly the
+            # wrong side of the market or a bad row.
+            skipped += 1
+            continue
+
+        player_id = _extract_player_id(row)
+        if not player_id:
+            # Not a player: DraftKings lists a "No goal" outcome on this
+            # market with no player_id.
+            log.debug("skipping row with no player_id: %s", name)
+            skipped += 1
+            continue
+
+        team = _extract_team(row) or teams_by_pid.get(player_id, "")
+        if team not in (fixture.home_team, fixture.away_team):
+            # Not on either team's roster in the feed (a fresh call-up).
+            # A blank team would break the paste tab and the concentration
+            # check, so the player is left out and reported.
+            unresolved.append(f"{name} ({label})")
+            skipped += 1
+            continue
+
+        players.append(
+            Player(
+                name=name,
+                team=team,
+                opponent=fixture.opponent_of(team),
+                american_odds=price,
+                fixture_id=fixture.id,
+                player_id=player_id,
+            )
+        )
+    return players, skipped
+
+
 def build(
     client: OpticOddsClient,
     cfg: Config,
@@ -225,73 +281,47 @@ def build(
     with_market = 0
     skipped = 0
     unresolved: list[str] = []
+    backup_priced: list[str] = []
 
+    books = cfg.odds.books
     for fixture in fixtures:
         label = f"{fixture.away_team} @ {fixture.home_team}"
 
-        try:
-            rows = client.goalscorer_odds(fixture)
-        except Exception:
-            log.exception("odds pull failed for %s", label)
-            dropped.append(label)
-            unpriced.append(fixture)
-            continue
-
-        yes_rows = [row for row in rows if _is_yes_side(row)]
-        teams_by_pid = _player_teams(client, fixture) if yes_rows else {}
-
+        # Primary book first; a backup only if every earlier book has no
+        # market for this game. One book prices the whole game — mixing books
+        # inside a game would compare players on inconsistent prices.
         game_players: list[Player] = []
-        for row in yes_rows:
-            price = _extract_price(row)
-            name = _extract_player_name(row)
-
-            if price is None or not name:
-                skipped += 1
+        used_book = ""
+        for book in books:
+            try:
+                rows = client.goalscorer_odds(fixture, book)
+            except Exception:
+                log.exception("odds pull failed for %s at %s", label, book)
                 continue
-
-            if price <= 0:
-                # Not a realistic anytime-goalscorer price; almost certainly the
-                # wrong side of the market or a bad row.
-                skipped += 1
-                continue
-
-            player_id = _extract_player_id(row)
-            if not player_id:
-                # Not a player: DraftKings lists a "No goal" outcome on this
-                # market with no player_id.
-                log.debug("skipping row with no player_id: %s", name)
-                skipped += 1
-                continue
-
-            team = _extract_team(row) or teams_by_pid.get(player_id, "")
-            if team not in (fixture.home_team, fixture.away_team):
-                # Not on either team's roster in the feed (a fresh call-up).
-                # A blank team would break the paste tab and the concentration
-                # check, so the player is left out and reported.
-                unresolved.append(f"{name} ({label})")
-                skipped += 1
-                continue
-
-            game_players.append(
-                Player(
-                    name=name,
-                    team=team,
-                    opponent=fixture.opponent_of(team),
-                    american_odds=price,
-                    fixture_id=fixture.id,
-                    player_id=player_id,
-                )
-            )
+            game_unresolved: list[str] = []
+            game_players, game_skipped = _parse_game(
+                client, fixture, rows, label, game_unresolved)
+            if game_players:
+                used_book = book
+                unresolved.extend(game_unresolved)
+                skipped += game_skipped
+                break
+            if len(books) > 1:
+                log.info("%s: no market at %s", label, book)
 
         if not game_players:
-            log.warning("no goalscorer market for %s", label)
+            log.warning("no goalscorer market for %s at %s", label, ", ".join(books))
             dropped.append(label)
             unpriced.append(fixture)
             continue
 
         with_market += 1
         players.extend(game_players)
-        log.info("%s: %d player(s)", label, len(game_players))
+        if used_book != books[0]:
+            from .config import book_name
+
+            backup_priced.append(f"{label} ({book_name(used_book)})")
+        log.info("%s: %d player(s) from %s", label, len(game_players), used_book)
 
     enrich(players, cfg)
 
@@ -369,5 +399,6 @@ def build(
         dropped_no_history=dropped_no_hist,
         fallback_notes=fallback_notes,
         unresolved_team=unresolved,
+        backup_priced=backup_priced,
         fixtures=fixtures,
     )

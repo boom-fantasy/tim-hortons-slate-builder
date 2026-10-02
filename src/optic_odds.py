@@ -312,8 +312,9 @@ class OpticOddsClient:
 
     # -- odds --------------------------------------------------------------
 
-    def goalscorer_odds(self, fixture: Fixture) -> list[dict]:
-        """Raw anytime-goalscorer odds rows for one fixture.
+    def goalscorer_odds(self, fixture: Fixture, sportsbook: str | None = None) -> list[dict]:
+        """Raw anytime-goalscorer odds rows for one fixture at one book
+        (the primary book unless `sportsbook` is given).
 
         Returns the raw rows rather than Players so the caller can decide how
         to handle partial coverage, and so `inspect` can dump them verbatim.
@@ -321,7 +322,7 @@ class OpticOddsClient:
         payload = self.get(
             "/api/v3/fixtures/odds",
             {
-                "sportsbook": self.cfg.odds.sportsbook,
+                "sportsbook": sportsbook or self.cfg.odds.sportsbook,
                 "fixture_id": fixture.id,
                 "market": self.cfg.optic_odds.market,
                 "odds_format": "AMERICAN",

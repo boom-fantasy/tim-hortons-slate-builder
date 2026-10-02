@@ -13,7 +13,7 @@ import os
 
 import requests
 
-from .config import Config
+from .config import Config, book_name
 from .slate import SlateBuild
 from .tiering import Projection, TierStats, team_concentration, verdict
 
@@ -216,6 +216,12 @@ def slate_summary(
         shown = ", ".join(names[:6]) + (f" +{len(names) - 6} more" if len(names) > 6 else "")
         alerts.append(
             f":grey_question: Priced but no team in the feed's rosters (left out): {shown}"
+        )
+
+    if build.backup_priced:
+        alerts.append(
+            f":information_source: No {book_name(cfg.odds.sportsbook)} odds — priced from "
+            f"backup book: {', '.join(build.backup_priced)}"
         )
 
     if build.dropped_fixtures:

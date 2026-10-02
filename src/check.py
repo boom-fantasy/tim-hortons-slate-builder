@@ -139,16 +139,19 @@ def _check_opticodds(cfg, rep: Report, date_iso: str):
         rep.fail("OpticOdds key + league", str(exc))
         return None
 
-    try:
-        ids = {str(m.get("id")) for m in client.markets(
-            cfg.optic_odds.sport, cfg.optic_odds.league, cfg.odds.sportsbook)}
-        if cfg.optic_odds.market in ids:
-            rep.ok("OpticOdds market", f"{cfg.optic_odds.market!r} listed at {cfg.odds.sportsbook}")
-        else:
-            rep.fail("OpticOdds market",
-                     f"{cfg.optic_odds.market!r} not offered at {cfg.odds.sportsbook}")
-    except Exception as exc:
-        rep.fail("OpticOdds market", str(exc))
+    for i, book in enumerate(cfg.odds.books):
+        role = "primary" if i == 0 else "backup"
+        try:
+            ids = {str(m.get("id")) for m in client.markets(
+                cfg.optic_odds.sport, cfg.optic_odds.league, book)}
+            if cfg.optic_odds.market in ids:
+                rep.ok(f"OpticOdds market ({role})",
+                       f"{cfg.optic_odds.market!r} listed at {book}")
+            else:
+                rep.fail(f"OpticOdds market ({role})",
+                         f"{cfg.optic_odds.market!r} not offered at {book}")
+        except Exception as exc:
+            rep.fail(f"OpticOdds market ({role})", f"{book}: {exc}")
 
     return client
 

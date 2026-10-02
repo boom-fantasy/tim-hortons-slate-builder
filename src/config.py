@@ -59,6 +59,13 @@ class ContestConfig:
 class OddsConfig:
     devig: float
     sportsbook: str
+    # Tried in order, per game, only when every book before it has no market
+    # for that game. A game is always priced entirely by ONE book.
+    backup_sportsbooks: list[str] = field(default_factory=list)
+
+    @property
+    def books(self) -> list[str]:
+        return [self.sportsbook] + [b for b in self.backup_sportsbooks if b != self.sportsbook]
 
 
 @dataclass(frozen=True)
@@ -157,6 +164,18 @@ class Config:
             if band.tier == tier:
                 return band
         return None
+
+
+_BOOK_NAMES = {
+    "draftkings": "DraftKings", "fanduel": "FanDuel", "betmgm": "BetMGM",
+    "caesars": "Caesars", "bet365": "bet365", "betrivers": "BetRivers",
+    "espn_bet": "ESPN Bet", "fanatics": "Fanatics",
+}
+
+
+def book_name(key: str) -> str:
+    """Display name for an OpticOdds sportsbook key."""
+    return _BOOK_NAMES.get(key, key)
 
 
 def _require(d: dict, key: str, ctx: str) -> Any:
@@ -324,6 +343,7 @@ def load(path: str | Path | None = None) -> Config:
         odds = OddsConfig(
             devig=float(_require(raw["odds"], "devig", "odds")),
             sportsbook=str(_require(raw["odds"], "sportsbook", "odds")),
+            backup_sportsbooks=[str(b) for b in raw["odds"].get("backup_sportsbooks") or []],
         )
         oo = raw["optic_odds"]
         optic_odds = OpticOddsConfig(
