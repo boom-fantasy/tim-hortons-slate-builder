@@ -64,7 +64,7 @@ odds:
   devig: 0.06
 
   # Sportsbook key as OpticOdds names it.
-  sportsbook: draftkings
+  sportsbook: fanduel        # TEMPORARY 2026-10-01: DraftKings had no props for 10/02. Was draftkings.
 
 # -----------------------------------------------------------------------------
 # OpticOdds lookups
