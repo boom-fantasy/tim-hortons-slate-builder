@@ -348,6 +348,7 @@ def _verify(writer, cfg, build, rep: Report, stored_after_build) -> None:
                 return m.group(0) if m else ""
 
             sheet_tier = {r[0]: _digits(r[idx]) if len(r) > idx else "" for r in values if r}
+            raw_tier = {r[0]: (str(r[idx]).strip() if len(r) > idx else "") for r in values if r}
             code_tier = {p.name + (marker if p.estimated else ""): str(p.tier) for p in eligible}
             diffs = [(n, code_tier[n], sheet_tier.get(n)) for n in code_tier
                      if sheet_tier.get(n) != code_tier[n]]
@@ -364,11 +365,16 @@ def _verify(writer, cfg, build, rep: Report, stored_after_build) -> None:
             outside = [p.name + (marker if p.estimated else "")
                        for p in build.players if p.tier is None]
             shown = {sheet_tier.get(n, "") for n in outside}
+            labels_shown = {raw_tier.get(n, "").upper() for n in outside}
             if not outside:
                 rep.warn("Out-of-band rows", "sample had none to check")
             elif shown <= {"4"}:
                 rep.ok("Out-of-band rows",
                        f"{len(outside)} priced players outside the bands show as tier 4")
+            elif labels_shown == {"OUT"}:
+                # The template's own label for odds outside every band.
+                rep.ok("Out-of-band rows",
+                       f"{len(outside)} priced players outside the bands show as OUT")
             elif shown & {"1", "2", "3"}:
                 rep.fail("Out-of-band rows",
                          f"template shows tier(s) {sorted(shown & {'1', '2', '3'})} for players "
