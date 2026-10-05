@@ -34,26 +34,28 @@ contest:
 # A player is assigned to the first tier whose range contains their odds.
 # Anything outside every range is excluded from the slate.
 #
-# PROVISIONAL. Solved against the 8.85-point budget, but on a SIMULATED slate —
-# no real odds have been pulled yet. Re-derive with `simulate` on a real pull
-# before the first live contest.
+# Recalibrated after week 1 (9/28–10/4), which came in at 50.73% any-correct
+# against a 60% target: the original bands were set too long. The whole
+# structure moved shorter rather than narrower, so each tier's pool shifts
+# toward likelier scorers without shrinking.
 #
-# They are far looser than last season's playoff bands (+250/+501/+1001),
-# because the payouts dropped (10/25/100 from 25/50/100) while the win rate
-# rose (60% from 40%). One consequence: the old rule of excluding anyone
-# shorter than +250 no longer applies — the stars you used to pull out belong
-# in tier 1 now.
+# These project ~55% any-correct, deliberately closing only about half the
+# gap. One week of results carries a ~4.6 point standard deviation, so the
+# 50.73% is a noisy read, and overshooting the budget (paying out more than
+# planned) is worse than undershooting it. Re-measure before moving further.
+#
+# Previous bands: T1 +150–290, T2 +291–540, T3 +541–900.
 # -----------------------------------------------------------------------------
 tiers:
   - tier: 1
-    min_odds: 150
-    max_odds: 290
+    min_odds: 105
+    max_odds: 270
   - tier: 2
-    min_odds: 291
-    max_odds: 540
+    min_odds: 271
+    max_odds: 520
   - tier: 3
-    min_odds: 541
-    max_odds: 900
+    min_odds: 521
+    max_odds: 1000
 
 # -----------------------------------------------------------------------------
 # Odds handling
