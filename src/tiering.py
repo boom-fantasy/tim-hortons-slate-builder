@@ -207,6 +207,14 @@ def project_all(stats: dict[int, TierStats], cfg: Config) -> dict[str, Projectio
     }
 
 
+# Verdict thresholds as a share of the points budget. They were written as
+# absolute ±1 / ±2 points when the budget was 13.00, i.e. ±1/13 (~7.7%) and
+# ±2/13 (~15.4%). Kept proportional so they mean the same thing at any budget:
+# at 8.85 they are ±0.68 / ±1.36 points.
+_SLIGHT_SHARE = 1 / 13
+_STRONG_SHARE = 2 / 13
+
+
 def verdict(projection: Projection, cfg: Config) -> str:
     """One-line read on whether the slate is on budget.
 
@@ -215,16 +223,18 @@ def verdict(projection: Projection, cfg: Config) -> str:
     """
     target = cfg.contest.target_expected_points
     delta = projection.expected_points - target
+    slight = _SLIGHT_SHARE * target
+    strong = _STRONG_SHARE * target
 
     if projection.expected_points == 0:
         return "No eligible players — nothing to judge"
-    if delta > 2:
+    if delta > strong:
         return "HOT — pull back the top of T1 or T2"
-    if delta > 1:
+    if delta > slight:
         return "Slightly hot — review the top of each tier"
-    if delta < -2:
+    if delta < -strong:
         return "COLD — add stronger players to T1"
-    if delta < -1:
+    if delta < -slight:
         return "Slightly cold — within the usual variance cushion"
     return "On target"
 
