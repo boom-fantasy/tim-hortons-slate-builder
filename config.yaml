@@ -28,34 +28,45 @@ contest:
   # sharp user actually sees. Set to null to disable dilution modelling.
   max_players_per_tier: 15
 
+  # Real results vs the model. Actual any-correct has run this far ABOVE the
+  # model's average-user line (week 1: +1.3 pts, week 2: +1.7 pts), so the
+  # verdict and the Slack "estimated win rate" use average + this. Re-measure
+  # it each week against the reported win rate and update if it drifts.
+  actual_offset: 0.015
+
 # -----------------------------------------------------------------------------
 # Tier bands — American odds, inclusive on both ends
 #
 # A player is assigned to the first tier whose range contains their odds.
 # Anything outside every range is excluded from the slate.
 #
-# Recalibrated after week 1 (9/28–10/4), which came in at 50.73% any-correct
-# against a 60% target: the original bands were set too long. The whole
-# structure moved shorter rather than narrower, so each tier's pool shifts
-# toward likelier scorers without shrinking.
+# Week 2 change (from 10/13). Week 1 (9/28–10/4) came in at 50.73% any-correct
+# and week 2 (10/5–10/11) at 52.74%, against a 60% target. A backtest of all 14
+# slates showed actual results track the model's AVERAGE-user line plus ~1.5
+# points — not the sharp line the earlier bands were tuned to.
 #
-# These project ~55% any-correct, deliberately closing only about half the
-# gap. One week of results carries a ~4.6 point standard deviation, so the
-# 50.73% is a noisy read, and overshooting the budget (paying out more than
-# planned) is worse than undershooting it. Re-measure before moving further.
+# These bands move shorter again and work together with slate.selection
+# (below): together they project ~57% actual, deliberately short of 60% to
+# stay under the points budget while results are measured. Judge it on the
+# weekly figure — nightly results are noisier now that the strongest players
+# are always submitted and picks may cluster on them.
 #
-# Previous bands: T1 +150–290, T2 +291–540, T3 +541–900.
+# History:
+#   9/28–10/4:   T1 +150–290,  T2 +291–540,  T3 +541–900   -> 50.73%
+#   10/5–10/11:  T1 +105–270,  T2 +271–520,  T3 +521–1000  -> 52.74%
+#
+# The Calibration v2 template has its own band cells — keep them identical.
 # -----------------------------------------------------------------------------
 tiers:
   - tier: 1
-    min_odds: 105
-    max_odds: 270
+    min_odds: 100
+    max_odds: 230
   - tier: 2
-    min_odds: 271
-    max_odds: 520
+    min_odds: 231
+    max_odds: 450
   - tier: 3
-    min_odds: 521
-    max_odds: 1000
+    min_odds: 451
+    max_odds: 850
 
 # -----------------------------------------------------------------------------
 # Odds handling
@@ -130,6 +141,25 @@ slate:
   # this hour +4 and +5 for Eastern.
   build_hour: 22
   drift_hour: 9
+
+  # Who is submitted to the contest in each tier (from 10/13).
+  #
+  #   all     everyone in the band — the behaviour through 10/12
+  #   top     the `submitted_per_tier` most likely to score
+  #   spread  the `spread_top` most likely, plus the remaining slots spread
+  #           evenly down the rest of the pool to its weakest player
+  #
+  # spread keeps a deliberate mix of strong, middling and weak options in every
+  # tier, so picking well still matters and a weak pick can still lose. Pools
+  # at or under `submitted_per_tier` are submitted whole (quiet nights do not
+  # change). Players tied on odds at the top cut are all kept. Unselected
+  # players are tier 4 in the paste tab and left off the slate tab.
+  #
+  # Raising spread_top (e.g. 3 -> 5 -> 10) is the main knob for moving the win
+  # rate up from here; lowering it, or raising submitted_per_tier, moves it down.
+  selection: spread
+  submitted_per_tier: 20
+  spread_top: 3
 
 # -----------------------------------------------------------------------------
 # Historical fallback

@@ -74,7 +74,26 @@ class SlateBuild:
 
     @property
     def out_of_band(self) -> list[Player]:
-        return [p for p in self.players if not p.eligible]
+        """Priced, but outside every tier band."""
+        return [p for p in self.players if not p.eligible and not p.trimmed]
+
+    @property
+    def trimmed(self) -> list[Player]:
+        """Inside a band but not selected for the contest (slate.selection)."""
+        return [p for p in self.players if p.trimmed]
+
+    @property
+    def on_slate_tab(self) -> list[Player]:
+        """What the slate tab lists: submitted players plus out-of-band rows.
+        Unselected players are left off so the template's own tier summary
+        counts exactly what is in the contest."""
+        return [p for p in self.players if not p.trimmed]
+
+    def band_pool_sizes(self, tiers) -> list[int]:
+        return [sum(1 for p in self.players if p.band_tier == t.tier) for t in tiers]
+
+    def submitted_sizes(self, tiers) -> list[int]:
+        return [sum(1 for p in self.players if p.tier == t.tier) for t in tiers]
 
 
 def _is_yes_side(row: dict) -> bool:
@@ -386,6 +405,12 @@ def build(
             "dropped %d game(s) with no market and no usable history: %s",
             len(dropped), ", ".join(dropped),
         )
+
+    # Who goes into the contest per tier. Runs after every price, live or
+    # estimated, has its band tier — so it sees the full pool.
+    from .tiering import select_submitted
+
+    select_submitted(players, cfg)
 
     return SlateBuild(
         date_iso=date_iso,

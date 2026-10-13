@@ -34,7 +34,8 @@ from zoneinfo import ZoneInfo
 from . import config as config_mod
 from . import notify, slate as slate_mod
 from .optic_odds import OpticOddsClient
-from .tiering import Player, enrich, project_all, team_concentration, tier_stats, verdict
+from .tiering import (Player, enrich, estimated_actual, project_all, team_concentration,
+                      tier_stats, verdict)
 
 log = logging.getLogger("slate-builder")
 
@@ -122,7 +123,10 @@ def _print_projection_table(cfg, stats, projections) -> None:
         print(f"  {label:<22}{actual}   (target {tgt:.1%})")
 
     print(f"\n  Target budget: {target:.2f} pts/user")
-    print(f"  Verdict:       {verdict(projections['sharp_adj'], cfg)}")
+    print(f"  Est. win rate: {estimated_actual(projections, cfg):.1%} "
+          f"(average line + {cfg.contest.actual_offset:.1%} measured offset; "
+          f"target {cfg.contest.target_any_correct:.0%})")
+    print(f"  Verdict:       {verdict(projections, cfg)}")
 
 
 # ---------------------------------------------------------------------------
@@ -297,8 +301,8 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
     """
     eligible = build.eligible
     log.info(
-        "%d player(s) pulled, %d eligible, %d outside the bands",
-        len(build.players), len(eligible), len(build.out_of_band),
+        "%d player(s) pulled, %d submitted, %d not selected, %d outside the bands",
+        len(build.players), len(eligible), len(build.trimmed), len(build.out_of_band),
     )
 
     if build.fixtures_total == 0:
@@ -327,8 +331,16 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
         print(f"\nDRY RUN — {date_iso} — nothing written\n")
         print(
             f"  Games: {build.fixtures_with_market}/{build.fixtures_total} priced"
-            f"   Players: {len(eligible)} eligible, {len(build.out_of_band)} out of band"
+            f"   Players: {len(eligible)} submitted, {len(build.out_of_band)} out of band"
         )
+        if build.trimmed:
+            sc = cfg.slate
+            print(
+                f"  Selection: {sc.selection} — top {sc.spread_top} + "
+                f"{sc.submitted_per_tier - sc.spread_top} spread per tier; submitted "
+                f"{' / '.join(map(str, build.submitted_sizes(cfg.tiers)))} from pools of "
+                f"{' / '.join(map(str, build.band_pool_sizes(cfg.tiers)))}"
+            )
         if build.estimated_fixtures:
             print(
                 f"  Estimated: {len(build.estimated)} player(s) across "
@@ -364,10 +376,11 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
 
         writer = SheetsWriter(cfg)
         result = writer.write_slate(
-            # Everyone with odds. Out-of-band players (priced, but outside
-            # every tier band) sort to the bottom, where the template's own
-            # Tier formula decides how they show.
-            players=build.players,
+            # Submitted players plus out-of-band ones (priced, outside every
+            # band), which sort to the bottom and show as OUT. Players inside a
+            # band but not selected are left off, so the template's tier
+            # summary matches the contest; they are tier 4 in the paste tab.
+            players=build.on_slate_tab,
             date_iso=date_iso,
             tab_name=tab_name,
             games_count=build.fixtures_with_market,

@@ -301,7 +301,7 @@ def _verify(writer, cfg, build, rep: Report, stored_after_build) -> None:
     try:
         got = writer.read_slate(SLATE_TAB)
         want = {(p.name + (marker if p.estimated else ""), p.american_odds)
-                for p in build.players}
+                for p in build.on_slate_tab}
         have = {(name, odds) for name, _t, _o, odds in got}
         if have == want:
             rep.ok("Slate tab rows", f"{len(got)} player rows read back exactly")
@@ -340,7 +340,7 @@ def _verify(writer, cfg, build, rep: Report, stored_after_build) -> None:
         if "tier" in labels:
             col = chr(ord("A") + labels.index("tier"))
             values = writer.read_values(
-                f"'{SLATE_TAB}'!A{first}:{col}{first + len(build.players) - 1}")
+                f"'{SLATE_TAB}'!A{first}:{col}{first + len(build.on_slate_tab) - 1}")
             idx = labels.index("tier")
 
             def _digits(v) -> str:
@@ -363,7 +363,7 @@ def _verify(writer, cfg, build, rep: Report, stored_after_build) -> None:
             # Tier formula show for them? 4 is the goal. 1-3 would be a real
             # problem — the template's tier summary would count them.
             outside = [p.name + (marker if p.estimated else "")
-                       for p in build.players if p.tier is None]
+                       for p in build.out_of_band]
             shown = {sheet_tier.get(n, "") for n in outside}
             labels_shown = {raw_tier.get(n, "").upper() for n in outside}
             if not outside:
@@ -462,7 +462,7 @@ def _verify(writer, cfg, build, rep: Report, stored_after_build) -> None:
         for r in mine:
             flag = r[9] if len(r) > 9 and r[9] else "unchanged"
             flags[flag] = flags.get(flag, 0) + 1
-        locked = len(build.players)   # every priced player is on the slate tab
+        locked = len(build.on_slate_tab)   # submitted + out-of-band rows
         if len(mine) == locked:
             rep.ok("Drift run + drift log",
                    f"{len(mine)} rows (one per locked player): {flags}")

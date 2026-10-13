@@ -15,7 +15,7 @@ import requests
 
 from .config import Config, book_name
 from .slate import SlateBuild
-from .tiering import Projection, TierStats, team_concentration, verdict
+from .tiering import Projection, TierStats, estimated_actual, team_concentration, verdict
 
 log = logging.getLogger(__name__)
 
@@ -155,17 +155,27 @@ def slate_summary(
     paste_url: str = "",
 ) -> None:
     adj = projections["sharp_adj"]
+    avg = projections["average"]
     target = cfg.contest.target_expected_points
-    read = verdict(adj, cfg)
-    delta = adj.expected_points - target
+    read = verdict(projections, cfg)
+    est = estimated_actual(projections, cfg)
 
     header = f"Hockey Challenge — {tab_name}"
 
     estimated = build.estimated
     lines = [
         f"*{build.fixtures_with_market} of {build.fixtures_total} games* priced"
-        f"  ·  *{len(build.eligible)} eligible players*",
+        f"  ·  *{len(build.eligible)} players submitted*",
     ]
+    if build.trimmed:
+        sc = cfg.slate
+        how = (f"{sc.spread_top} most likely + {sc.submitted_per_tier - sc.spread_top} "
+               f"spread" if sc.selection == "spread" else f"{sc.submitted_per_tier} most likely")
+        lines.append(
+            f"_Per tier: {how} — "
+            f"{' / '.join(map(str, build.submitted_sizes(cfg.tiers)))} submitted from pools of "
+            f"{' / '.join(map(str, build.band_pool_sizes(cfg.tiers)))}_"
+        )
     if estimated:
         lines.append(
             f"_{len(estimated)} of those estimated from past games "
@@ -278,12 +288,13 @@ def slate_summary(
     )
 
     # Projection.
-    sign = "+" if delta >= 0 else ""
+    # Estimated real results first (average line + measured offset); the
+    # sharp line is shown as a ceiling only — it overstates real results.
     proj_lines = [
-        f"*Projected payout:* {adj.expected_points:.2f} pts/user "
-        f"(target {target:.2f}, {sign}{delta:.2f})",
-        f"*Any-correct:* {_fmt_pct(adj.any_correct)} "
+        f"*Estimated win rate:* {_fmt_pct(est)} "
         f"(target {_fmt_pct(cfg.contest.target_any_correct)})",
+        f"*Projected payout:* {avg.expected_points:.2f} pts/user, average user "
+        f"(budget {target:.2f}) · sharp ceiling {adj.expected_points:.2f}",
         f"*Verdict:* {read}",
     ]
     blocks.append(
@@ -309,8 +320,8 @@ def slate_summary(
     blocks.append({"type": "actions", "elements": buttons})
 
     fallback = (
-        f"{header}: {len(build.eligible)} players, "
-        f"{adj.expected_points:.2f} pts/user — {read}"
+        f"{header}: {len(build.eligible)} players, est. win rate "
+        f"{_fmt_pct(est)} — {read}"
     )
     _send(cfg, blocks, fallback)
 

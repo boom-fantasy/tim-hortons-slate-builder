@@ -39,6 +39,9 @@ class ContestConfig:
     payouts: list[int]
     targets: list[float]
     max_players_per_tier: int | None
+    # Measured gap between real results and the model's average-user
+    # any-correct line (a share, 0.015 = 1.5 points). See tiering.verdict.
+    actual_offset: float = 0.015
 
     @property
     def target_expected_points(self) -> float:
@@ -87,6 +90,10 @@ class SlateConfig:
     # Local hour (in `timezone`) that `--scheduled` runs are allowed to go.
     build_hour: int
     drift_hour: int
+    # Who is submitted per tier — see tiering.select_submitted.
+    selection: str = "all"
+    submitted_per_tier: int = 20
+    spread_top: int = 3
 
 
 @dataclass(frozen=True)
@@ -300,6 +307,14 @@ def _validate_slate(s: SlateConfig) -> list[str]:
         value = getattr(s, name)
         if not 0 <= value <= 23:
             problems.append(f"slate.{name} must be an hour 0-23, got {value}")
+    if s.selection not in ("all", "top", "spread"):
+        problems.append(f"slate.selection must be all, top or spread, got {s.selection!r}")
+    if s.submitted_per_tier < 1:
+        problems.append("slate.submitted_per_tier must be >= 1")
+    if s.selection == "spread" and not 0 <= s.spread_top < s.submitted_per_tier:
+        problems.append(
+            f"slate.spread_top ({s.spread_top}) must be at least 0 and below "
+            f"submitted_per_tier ({s.submitted_per_tier})")
     return problems
 
 
@@ -331,6 +346,7 @@ def load(path: str | Path | None = None) -> Config:
             payouts=list(_require(raw["contest"], "payouts", "contest")),
             targets=[float(x) for x in _require(raw["contest"], "targets", "contest")],
             max_players_per_tier=raw["contest"].get("max_players_per_tier"),
+            actual_offset=float(raw["contest"].get("actual_offset", 0.015)),
         )
         tiers = [
             TierBand(
@@ -362,6 +378,9 @@ def load(path: str | Path | None = None) -> Config:
             timezone=str(sl.get("timezone", "America/New_York")),
             build_hour=int(sl.get("build_hour", 22)),
             drift_hour=int(sl.get("drift_hour", 9)),
+            selection=str(sl.get("selection", "all")).lower(),
+            submitted_per_tier=int(sl.get("submitted_per_tier", 20)),
+            spread_top=int(sl.get("spread_top", 3)),
         )
         rs = raw.get("roster", {})
         roster = RosterConfig(

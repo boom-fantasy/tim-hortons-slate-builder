@@ -35,6 +35,12 @@ class Player:
     estimated: bool = False
     estimate_games: int = 0
 
+    # Tier by odds band, before per-tier selection. `trimmed` marks a player
+    # who was inside a band but not selected for the contest (see
+    # select_submitted); their `tier` is then None, so they read as tier 4.
+    band_tier: int | None = None
+    trimmed: bool = False
+
     @property
     def eligible(self) -> bool:
         return self.tier is not None
@@ -94,6 +100,65 @@ def enrich(players: list[Player], cfg: Config) -> list[Player]:
         p.true_prob = p.implied_prob * (1.0 - cfg.odds.devig)
         p.tier = cfg.tier_for(p.american_odds)
     return players
+
+
+def select_submitted(players: list[Player], cfg: Config) -> None:
+    """Choose who is submitted to the contest in each tier, in place.
+
+    slate.selection:
+      all     everyone in the band (the tier pool as-is)
+      top     the `submitted_per_tier` most likely to score
+      spread  the `spread_top` most likely, then the rest of the slots spread
+              evenly down the remaining pool to its weakest player — so each
+              tier keeps a deliberate mix of strong, middling and weak options
+
+    A pool at or under `submitted_per_tier` is submitted whole. Players tied
+    on odds at the top cut are all kept, rather than choosing between equal
+    prices arbitrarily. Unselected players get tier None and `trimmed` set:
+    out of the contest, listed as tier 4 in the paste tab.
+
+    Order is deterministic (probability, then name), so the same odds always
+    give the same selection.
+    """
+    sc = cfg.slate
+    for p in players:
+        p.band_tier = p.tier
+        p.trimmed = False
+    if sc.selection == "all":
+        return
+
+    n = sc.submitted_per_tier
+    for band in cfg.tiers:
+        pool = sorted((p for p in players if p.tier == band.tier),
+                      key=lambda p: (-p.true_prob, p.name))
+        if len(pool) <= n:
+            continue
+
+        k = n if sc.selection == "top" else sc.spread_top
+        if k > 0:
+            cut = pool[k - 1].american_odds
+            top = [p for p in pool if p.american_odds <= cut]   # keep ties at the cut
+        else:
+            top = []
+        top = top[:max(n, k)] if len(top) > n else top
+        rest = [p for p in pool if p not in top]
+        slots = n - len(top)
+
+        if sc.selection == "top" or slots <= 0:
+            chosen = top
+        elif len(rest) <= slots:
+            chosen = top + rest
+        elif slots == 1:
+            chosen = top + [rest[len(rest) // 2]]
+        else:
+            step = (len(rest) - 1) / (slots - 1)          # first to last, evenly
+            chosen = top + [rest[round(i * step)] for i in range(slots)]
+
+        keep = {id(p) for p in chosen}
+        for p in pool:
+            if id(p) not in keep:
+                p.tier = None
+                p.trimmed = True
 
 
 def tier_stats(players: list[Player], cfg: Config) -> dict[int, TierStats]:
@@ -207,36 +272,52 @@ def project_all(stats: dict[int, TierStats], cfg: Config) -> dict[str, Projectio
     }
 
 
-# Verdict thresholds as a share of the points budget. They were written as
-# absolute ±1 / ±2 points when the budget was 13.00, i.e. ±1/13 (~7.7%) and
-# ±2/13 (~15.4%). Kept proportional so they mean the same thing at any budget:
-# at 8.85 they are ±0.68 / ±1.36 points.
+# Verdict thresholds as a share of the target. Originally absolute ±1 / ±2
+# points against a 13.00 budget, i.e. ±1/13 (~7.7%) and ±2/13 (~15.4%); kept
+# proportional so they mean the same at any target. Against the 60%
+# any-correct target that is ±4.6 / ±9.2 points.
 _SLIGHT_SHARE = 1 / 13
 _STRONG_SHARE = 2 / 13
 
 
-def verdict(projection: Projection, cfg: Config) -> str:
-    """One-line read on whether the slate is on budget.
+def estimated_actual(projections: dict[str, Projection], cfg: Config) -> float:
+    """Estimated real any-correct rate for a slate.
 
-    Judged against the adjusted-sharp projection, which is the worst realistic
-    case for payout exposure.
+    Real results track the AVERAGE-user line plus a small offset, not the sharp
+    lines: across weeks 1-2 actual ran 1.3-1.7 points above the average line,
+    while sharp (adj) overstated it by 2-3 points. contest.actual_offset holds
+    that gap; re-measure it as weeks come in.
     """
-    target = cfg.contest.target_expected_points
-    delta = projection.expected_points - target
+    return projections["average"].any_correct + cfg.contest.actual_offset
+
+
+def verdict(projections: dict[str, Projection], cfg: Config) -> str:
+    """One-line read on whether the slate is on target.
+
+    Judged on the estimated real win rate (average line + measured offset)
+    against the any-correct target — the number that is actually reported.
+    The sharp lines overstate real results, and with the strongest players
+    always submitted they would read HOT on most busy nights.
+    """
+    if projections["average"].expected_points == 0:
+        return "No eligible players — nothing to judge"
+
+    target = cfg.contest.target_any_correct
+    est = estimated_actual(projections, cfg)
+    delta = est - target
     slight = _SLIGHT_SHARE * target
     strong = _STRONG_SHARE * target
+    read = f"est. {est:.1%} vs {target:.0%} target"
 
-    if projection.expected_points == 0:
-        return "No eligible players — nothing to judge"
     if delta > strong:
-        return "HOT — pull back the top of T1 or T2"
+        return f"HOT — {read}; lower slate.spread_top or lengthen the bands"
     if delta > slight:
-        return "Slightly hot — review the top of each tier"
+        return f"Slightly hot — {read}"
     if delta < -strong:
-        return "COLD — add stronger players to T1"
+        return f"COLD — {read}; raise slate.spread_top or shorten the bands"
     if delta < -slight:
-        return "Slightly cold — within the usual variance cushion"
-    return "On target"
+        return f"Slightly cold — {read}"
+    return f"On target — {read}"
 
 
 def team_concentration(players: list[Player], cfg: Config) -> dict[str, float]:
