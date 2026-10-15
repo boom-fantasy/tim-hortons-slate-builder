@@ -352,6 +352,12 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
                 f"  Left out (scratched last game): "
                 f"{len(build.dropped_recent_absence)}"
             )
+        if build.late_label:
+            print(f"  Final game(s): {build.late_label} — "
+                  f"{' / '.join(str(build.late_counts.get(t.tier, 0)) for t in cfg.tiers)} "
+                  f"per tier (min {cfg.slate.late_game_min_per_tier})")
+        if build.late_unpriced:
+            print(f"  Later game(s) with no odds: {', '.join(build.late_unpriced)}")
         if build.backup_priced:
             print(f"  From backup book: {', '.join(build.backup_priced)}")
         for note in build.fallback_notes:

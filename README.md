@@ -98,6 +98,22 @@ are never blocked.
 
 ---
 
+## Late-evening coverage
+
+The contest drops players as their games start, so late in the evening only the
+final start time's players are left. A tier with none of them cannot be picked
+in at all. After the per-tier selection, any tier with fewer than
+`slate.late_game_min_per_tier` (3) players from the final game(s) gets more
+added back from those games, spread strongest to weakest. Nobody is removed, so
+a tier can end up slightly over `submitted_per_tier`. Covering the final start
+time covers every earlier point too.
+
+The Slack summary shows the final game(s) and their per-tier count every night,
+and warns if a final game has too few players in a band, or if a later game has
+no odds (the contest then effectively closes when the last priced game starts).
+
+---
+
 ## Sportsbooks
 
 Odds come from one primary book (`odds.sportsbook`, DraftKings) with backups

@@ -161,6 +161,15 @@ slate:
   submitted_per_tier: 20
   spread_top: 3
 
+  # Players from the night's FINAL start time, per tier. The contest drops
+  # players as their games start, so late in the evening only the last
+  # game(s)' players remain — a tier with none of them cannot be picked in at
+  # all. After the selection above, any tier short of this gets more players
+  # from the final game(s) added back (spread strongest to weakest); nobody is
+  # removed, so a tier can end up a little over submitted_per_tier. If the
+  # final game has too few players in a band, Slack warns. (Added 10/15.)
+  late_game_min_per_tier: 3
+
 # -----------------------------------------------------------------------------
 # Historical fallback
 #

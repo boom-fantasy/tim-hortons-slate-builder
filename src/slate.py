@@ -52,6 +52,14 @@ class SlateBuild:
     # Games the primary book had no market for, priced by a backup book.
     backup_priced: list[str] = field(default_factory=list)
 
+    # The night's final start time: which game(s), and how many submitted
+    # players per tier come from them. Late in the evening these are the only
+    # players left in the contest.
+    late_label: str = ""
+    late_counts: dict = field(default_factory=dict)
+    # Games starting after the final priced game — no odds, so not offered.
+    late_unpriced: list[str] = field(default_factory=list)
+
     fixtures: list[Fixture] = field(default_factory=list)
 
     @property
@@ -412,6 +420,25 @@ def build(
 
     select_submitted(players, cfg)
 
+    # The contest drops players as their games start, so late in the evening
+    # only the final start time's players remain. Every tier needs some of
+    # them. "Final" = the latest start among games that have players in a
+    # band; a later game with no odds cannot be offered anyway (reported).
+    from .tiering import ensure_late_game_coverage
+
+    banded = {p.fixture_id for p in players if p.band_tier}
+    timed = [f for f in fixtures if f.id in banded]
+    late_label, late_counts, late_unpriced = "", {}, []
+    if timed:
+        last = max(f.start_date for f in timed)
+        late = [f for f in timed if f.start_date == last]
+        late_counts = ensure_late_game_coverage(players, cfg, {f.id for f in late})
+        late_label = ", ".join(f"{f.away_team} @ {f.home_team}" for f in late)
+        late_unpriced = [f"{f.away_team} @ {f.home_team}" for f in fixtures
+                         if f.start_date > last]
+        log.info("final game(s) %s: %s per tier", late_label,
+                 " / ".join(str(late_counts.get(t.tier, 0)) for t in cfg.tiers))
+
     return SlateBuild(
         date_iso=date_iso,
         players=players,
@@ -425,5 +452,8 @@ def build(
         fallback_notes=fallback_notes,
         unresolved_team=unresolved,
         backup_priced=backup_priced,
+        late_label=late_label,
+        late_counts=late_counts,
+        late_unpriced=late_unpriced,
         fixtures=fixtures,
     )

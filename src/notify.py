@@ -228,6 +228,29 @@ def slate_summary(
             f":grey_question: Priced but no team in the feed's rosters (left out): {shown}"
         )
 
+    if build.late_label:
+        need = cfg.slate.late_game_min_per_tier
+        counts = [build.late_counts.get(t.tier, 0) for t in cfg.tiers]
+        lines.append(
+            f"_Final game(s) — {build.late_label}: "
+            f"{' / '.join(map(str, counts))} players per tier "
+            f"(all that is left late in the evening)_"
+        )
+        short = [f"tier {t.tier}: {build.late_counts.get(t.tier, 0)}"
+                 for t in cfg.tiers if build.late_counts.get(t.tier, 0) < need]
+        if short:
+            alerts.append(
+                f":warning: Late-evening gap — the final game(s) ({build.late_label}) "
+                f"have fewer than {need} players in {', '.join(short)}. After the "
+                f"earlier games start, users have few or no choices there."
+            )
+    if build.late_unpriced:
+        alerts.append(
+            f":warning: Latest game(s) have no odds and are not in the contest: "
+            f"{', '.join(build.late_unpriced)}. The contest effectively closes when "
+            f"{build.late_label} starts."
+        )
+
     if build.backup_priced:
         alerts.append(
             f":information_source: No {book_name(cfg.odds.sportsbook)} odds — priced from "

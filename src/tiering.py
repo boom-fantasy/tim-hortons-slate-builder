@@ -102,6 +102,55 @@ def enrich(players: list[Player], cfg: Config) -> list[Player]:
     return players
 
 
+def _spread_pick(candidates: list[Player], count: int) -> list[Player]:
+    """`count` players spread evenly from strongest to weakest of `candidates`
+    (already sorted strongest first)."""
+    if count <= 0:
+        return []
+    if len(candidates) <= count:
+        return list(candidates)
+    if count == 1:
+        return [candidates[len(candidates) // 2]]
+    step = (len(candidates) - 1) / (count - 1)
+    return [candidates[round(i * step)] for i in range(count)]
+
+
+def ensure_late_game_coverage(players: list[Player], cfg: Config,
+                              late_fixture_ids: set[str]) -> dict[int, int]:
+    """Make sure every tier has players from the night's final game(s).
+
+    Once the earlier games start, the contest shows only players from games
+    that have not started — so a tier with no submitted players from the last
+    start time cannot be picked in at all late in the evening. Covering the
+    last start time covers every earlier point too, since those players stay
+    available all evening.
+
+    For each tier short of slate.late_game_min_per_tier, unselected players
+    from the final game(s) in that tier's band are ADDED back (spread from
+    strongest to weakest, like the main selection). Nobody already selected is
+    removed. Returns the final count per tier from the final game(s); a tier
+    still under the minimum means the final game simply has too few players
+    in that band.
+    """
+    need = cfg.slate.late_game_min_per_tier
+    counts: dict[int, int] = {}
+    for band in cfg.tiers:
+        late_band = sorted(
+            (p for p in players if p.band_tier == band.tier and p.fixture_id in late_fixture_ids),
+            key=lambda p: (-p.true_prob, p.name),
+        )
+        have = [p for p in late_band if p.tier == band.tier]
+        short = need - len(have)
+        if short > 0:
+            spare = [p for p in late_band if p.trimmed]
+            for p in _spread_pick(spare, short):
+                p.tier = band.tier
+                p.trimmed = False
+            have = [p for p in late_band if p.tier == band.tier]
+        counts[band.tier] = len(have)
+    return counts
+
+
 def select_submitted(players: list[Player], cfg: Config) -> None:
     """Choose who is submitted to the contest in each tier, in place.
 
@@ -159,6 +208,8 @@ def select_submitted(players: list[Player], cfg: Config) -> None:
             if id(p) not in keep:
                 p.tier = None
                 p.trimmed = True
+    # Late-game coverage is applied afterwards by the caller, which knows the
+    # fixtures' start times — see ensure_late_game_coverage.
 
 
 def tier_stats(players: list[Player], cfg: Config) -> dict[int, TierStats]:
