@@ -343,6 +343,12 @@ sheets:
   # Every player is logged, not only flagged ones, so rates have a denominator.
   drift_log_tab: "_drift_log"
 
+  # Hidden tab: every priced player on the injury list each night — status
+  # (out / ir / dtd), injury type, odds, and what happened to them (excluded,
+  # submitted T1-3, not selected, out of band). Never pruned. `python -m
+  # src.main injuries` checks it against actual results. (Added 10/20.)
+  injury_log_tab: "_injury_log"
+
   # The master workbook. Share it with the service account as an Editor.
   spreadsheet_id: "1Q3esYoc8VjfPQBj8hd9zt1JeCMr0Ws8LuloxYCjhgVo"
 
@@ -372,6 +378,27 @@ slack:
   enabled: true
   channel: "#dfs-operations"
   # Bot token comes from the SLACK_BOT_TOKEN env var, never from this file.
+
+# -----------------------------------------------------------------------------
+# Injury list
+#
+# At build time (10pm the night before) the OpticOdds NHL injury list is read.
+# Players whose status is in exclude_statuses are kept out of the contest —
+# tier 4 in the paste tab, off the slate tab, named in Slack — and their slot
+# goes to someone else in the selection. Every listed player is logged to
+# sheets.injury_log_tab either way.
+#
+# What 10pm can and cannot know: IR / out are announced days ahead and are
+# reliably in the feed. Game-day decisions (morning skate), healthy scratches
+# and late illness are not — those remain a source of no-shows.
+#
+# dtd (day-to-day) is deliberately NOT excluded yet: it is logged, and after a
+# couple of weeks `python -m src.main injuries` shows how often a dtd player
+# at 10pm actually sat. Add it here if that rate is high. (Added 10/20.)
+# -----------------------------------------------------------------------------
+injuries:
+  enabled: true
+  exclude_statuses: [ir, out]
 
 # -----------------------------------------------------------------------------
 # Post-lock drift check

@@ -251,6 +251,21 @@ def slate_summary(
             f"{build.late_label} starts."
         )
 
+    if build.injury_excluded:
+        alerts.append(
+            ":ambulance: Left out — on the injury list: " + ", ".join(
+                f"{p.name} ({p.team}, {p.injury.upper()})" for p in build.injury_excluded)
+        )
+    dtd_in = [p for p in build.eligible if p.injury]
+    if dtd_in:
+        alerts.append(
+            ":information_source: On the injury list but still submitted: " + ", ".join(
+                f"{p.name} (T{p.tier}, {p.injury.upper()})" for p in dtd_in)
+            + " — logged to see how often they sit."
+        )
+    if build.injury_note:
+        alerts.append(f":warning: {build.injury_note}")
+
     if build.backup_priced:
         alerts.append(
             f":information_source: No {book_name(cfg.odds.sportsbook)} odds — priced from "

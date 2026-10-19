@@ -432,6 +432,33 @@ class SheetsWriter:
         "current_odds", "current_tier", "prob_move", "flag",
     ]
 
+    INJURY_LOG_HEADER = [
+        "date", "fixture_id", "player_id", "player", "team", "status",
+        "injury_type", "odds", "band_tier", "outcome",
+    ]
+
+    def append_injury_log(self, rows: list[list], date_iso: str) -> int:
+        """Append one night's injury-list rows. Never pruned; one write per
+        date (a re-run keeps the first). RAW so dates and ids stay text."""
+        if not rows:
+            return 0
+        spreadsheet = self._spreadsheet()
+        title = self.cfg.sheets.injury_log_tab
+        self._ensure_tab(spreadsheet, title, self.INJURY_LOG_HEADER)
+        logged = {str(r[0]).strip() for r in self.read_values(f"'{title}'!A:A")[1:] if r}
+        if date_iso in logged:
+            log.info("injury log already has %s — not appending again", date_iso)
+            return 0
+        self.service.spreadsheets().values().append(
+            spreadsheetId=self.spreadsheet_id,
+            range=f"'{title}'!A:J",
+            valueInputOption="RAW",
+            insertDataOption="INSERT_ROWS",
+            body={"values": rows},
+        ).execute()
+        log.info("logged %d injury-list row(s) for %s", len(rows), date_iso)
+        return len(rows)
+
     def append_drift_log(self, rows: list[list], date_iso: str) -> int:
         """Append one morning's drift rows. Never pruned.
 

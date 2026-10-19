@@ -352,6 +352,14 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
                 f"  Left out (scratched last game): "
                 f"{len(build.dropped_recent_absence)}"
             )
+        if build.injury_excluded:
+            print("  Injury list, left out: " + ", ".join(
+                f"{p.name} ({p.injury})" for p in build.injury_excluded))
+        if any(p.injury for p in build.eligible):
+            print("  Injury list, still submitted: " + ", ".join(
+                f"{p.name} (T{p.tier}, {p.injury})" for p in build.eligible if p.injury))
+        if build.injury_note:
+            print(f"  {build.injury_note}")
         if build.late_label:
             print(f"  Final game(s): {build.late_label} — "
                   f"{' / '.join(str(build.late_counts.get(t.tier, 0)) for t in cfg.tiers)} "
@@ -455,6 +463,22 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
         )
     except Exception:
         log.exception("price store update failed (slate was still written)")
+
+    # Injury log: every priced player on the injury list and what happened to
+    # them, so `injuries` can later check how often each status really sat.
+    if build.injury_listed:
+        try:
+            rows = []
+            for p in build.injury_listed:
+                band = cfg.tier_for(p.american_odds)
+                outcome = ("excluded" if p.injury_excluded else
+                           f"submitted T{p.tier}" if p.tier else
+                           "not selected" if p.trimmed else "out of band")
+                rows.append([date_iso, p.fixture_id, p.player_id, p.name, p.team,
+                             p.injury, p.injury_type, p.american_odds, band or "", outcome])
+            writer.append_injury_log(rows, date_iso)
+        except Exception:
+            log.exception("injury log update failed (slate was still written)")
 
     if build.estimated:
         try:
@@ -676,6 +700,59 @@ def cmd_simulate(args, cfg) -> int:
 
 # ---------------------------------------------------------------------------
 
+def cmd_injuries(args, cfg) -> int:
+    """Check the injury log against actual game results.
+
+    For every logged player whose game is over, did they dress? Answers the
+    question the log exists for: how often does "day-to-day at 10pm" mean
+    the player sits — i.e. is excluding dtd players worth losing the ones who
+    play. Read-only.
+    """
+    import collections
+    from .sheets import SheetsWriter
+
+    rows = SheetsWriter(cfg).read_values(f"'{cfg.sheets.injury_log_tab}'!A:J")[1:]
+    rows = [r + [""] * (10 - len(r)) for r in rows if r and r[0]]
+    if not rows:
+        print("\nInjury log is empty — it fills from the nightly build.\n")
+        return 0
+
+    client = OpticOddsClient(cfg)
+    dressed: dict[str, set[str] | None] = {}
+    for fid in sorted({r[1] for r in rows}):
+        try:
+            recs = client._records(client.get("/api/v3/fixtures/player-results", {"fixture_id": fid}))
+            done = [rec for rec in recs if (rec.get("fixture") or {}).get("status") == "completed"]
+            dressed[fid] = ({str(r["player"]["id"]) for rec in done for r in rec.get("results", [])}
+                            if done else None)
+        except Exception:
+            log.warning("no results for fixture %s yet", fid)
+            dressed[fid] = None
+
+    stats = collections.defaultdict(lambda: [0, 0])          # status -> [played, total]
+    submitted = collections.defaultdict(lambda: [0, 0])
+    pending = 0
+    for r in rows:
+        played_set = dressed.get(r[1])
+        if played_set is None:
+            pending += 1
+            continue
+        played = r[2] in played_set
+        s = stats[r[5]]; s[0] += played; s[1] += 1
+        if r[9].startswith("submitted"):
+            t = submitted[r[5]]; t[0] += played; t[1] += 1
+
+    print(f"\nInjury log — {len(rows)} row(s), {pending} awaiting results\n")
+    print(f"  {'status':<8}{'logged':>8}{'played':>8}{'sat':>8}   submitted: played / total")
+    for status in sorted(stats):
+        played, total = stats[status]
+        sp, st = submitted.get(status, [0, 0])
+        print(f"  {status:<8}{total:>8}{played:>8}{total - played:>8}   {sp} / {st}")
+    print("\n  A high 'sat' share for dtd is the case for adding it to"
+          " injuries.exclude_statuses.\n")
+    return 0
+
+
 def cmd_accuracy(args, cfg) -> int:
     """Roll up the estimate log.
 
@@ -798,6 +875,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--scheduled", action="store_true",
                    help="cron mode: run only during slate.drift_hour local time")
     p.set_defaults(func=cmd_drift)
+
+    p = sub.add_parser("injuries", help="did injury-listed players actually play?")
+    p.set_defaults(func=cmd_injuries)
 
     p = sub.add_parser("accuracy", help="roll up the estimate-accuracy log")
     p.set_defaults(func=cmd_accuracy)

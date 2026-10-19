@@ -41,6 +41,13 @@ class Player:
     band_tier: int | None = None
     trimmed: bool = False
 
+    # From the injury list at build time ("" when not listed). A player whose
+    # status is in injuries.exclude_statuses is kept out of the contest:
+    # tier None, `injury_excluded` set, tier 4 in the paste tab.
+    injury: str = ""
+    injury_type: str = ""
+    injury_excluded: bool = False
+
     @property
     def eligible(self) -> bool:
         return self.tier is not None

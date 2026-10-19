@@ -202,6 +202,29 @@ class OpticOddsClient:
 
     # -- fixtures ----------------------------------------------------------
 
+    def injuries(self) -> dict[str, dict]:
+        """Current injury list: player_id -> {"status", "type"}.
+
+        Statuses seen for the NHL: "out", "ir" (injured reserve), "dtd"
+        (day-to-day). It is a snapshot of right now — the feed carries no
+        timestamp for when a status was set. Follows the cursor.
+        """
+        params = {"sport": self.cfg.optic_odds.sport, "league": self.cfg.optic_odds.league}
+        out: dict[str, dict] = {}
+        for _ in range(20):
+            payload = self.get("/api/v3/injuries", params)
+            for rec in self._records(payload):
+                player = rec.get("player") or {}
+                pid = str(player.get("id") or "")
+                if pid:
+                    out[pid] = {"status": str(rec.get("status") or "").lower(),
+                                "type": str(rec.get("type") or "")}
+            cursor = payload.get("cursor") if isinstance(payload, dict) else None
+            if not (isinstance(payload, dict) and payload.get("has_more") and cursor):
+                break
+            params = {**params, "cursor": cursor}
+        return out
+
     def teams(self) -> list[dict]:
         """Every team in the league, as {id, name}. Teams with no players
         (the feed keeps a few, e.g. relocated franchises) come back with an

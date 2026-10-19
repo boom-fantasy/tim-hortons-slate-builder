@@ -60,6 +60,9 @@ class SlateBuild:
     # Games starting after the final priced game — no odds, so not offered.
     late_unpriced: list[str] = field(default_factory=list)
 
+    # Set when the injury list could not be read (nobody was excluded).
+    injury_note: str = ""
+
     fixtures: list[Fixture] = field(default_factory=list)
 
     @property
@@ -83,7 +86,18 @@ class SlateBuild:
     @property
     def out_of_band(self) -> list[Player]:
         """Priced, but outside every tier band."""
-        return [p for p in self.players if not p.eligible and not p.trimmed]
+        return [p for p in self.players
+                if not p.eligible and not p.trimmed and not p.injury_excluded]
+
+    @property
+    def injury_excluded(self) -> list[Player]:
+        """Kept out of the contest by the injury list (injuries.exclude_statuses)."""
+        return [p for p in self.players if p.injury_excluded]
+
+    @property
+    def injury_listed(self) -> list[Player]:
+        """Every priced player on the injury list, excluded or not."""
+        return [p for p in self.players if p.injury]
 
     @property
     def trimmed(self) -> list[Player]:
@@ -95,7 +109,7 @@ class SlateBuild:
         """What the slate tab lists: submitted players plus out-of-band rows.
         Unselected players are left off so the template's own tier summary
         counts exactly what is in the contest."""
-        return [p for p in self.players if not p.trimmed]
+        return [p for p in self.players if not p.trimmed and not p.injury_excluded]
 
     def band_pool_sizes(self, tiers) -> list[int]:
         return [sum(1 for p in self.players if p.band_tier == t.tier) for t in tiers]
@@ -414,6 +428,30 @@ def build(
             len(dropped), ", ".join(dropped),
         )
 
+    # Injury list, before selection — so an excluded player's slot goes to
+    # someone else rather than leaving a gap. A failure to read it is not
+    # fatal: nobody is excluded and the summary says so.
+    injury_note = ""
+    if cfg.injuries.enabled and players:
+        try:
+            injured = client.injuries()
+        except Exception:
+            log.exception("injury list unavailable — no injury exclusions tonight")
+            injured, injury_note = None, "injury list unavailable — nobody excluded"
+        if injured is not None:
+            for p in players:
+                rec = injured.get(p.player_id)
+                if not rec:
+                    continue
+                p.injury, p.injury_type = rec["status"], rec["type"]
+                if p.injury in cfg.injuries.exclude_statuses:
+                    p.tier = None
+                    p.injury_excluded = True
+            excluded = [p for p in players if p.injury_excluded]
+            if excluded:
+                log.info("injury list: left out %s", ", ".join(
+                    f"{p.name} ({p.injury})" for p in excluded))
+
     # Who goes into the contest per tier. Runs after every price, live or
     # estimated, has its band tier — so it sees the full pool.
     from .tiering import select_submitted
@@ -455,5 +493,6 @@ def build(
         late_label=late_label,
         late_counts=late_counts,
         late_unpriced=late_unpriced,
+        injury_note=injury_note,
         fixtures=fixtures,
     )

@@ -47,6 +47,7 @@ HIDDEN_TABS = {
     "price_history": "_TEST price_history",
     "estimate_log": "_TEST estimate_log",
     "drift_log": "_TEST drift_log",
+    "injury_log": "_TEST injury_log",
 }
 TEST_TABS = [SLATE_TAB, PASTE_TAB, *HIDDEN_TABS.values()]
 
@@ -90,6 +91,7 @@ def practice_cfg(cfg, post_slack: bool):
             estimate_log_tab=HIDDEN_TABS["estimate_log"],
             price_history_tab=HIDDEN_TABS["price_history"],
             drift_log_tab=HIDDEN_TABS["drift_log"],
+            injury_log_tab=HIDDEN_TABS["injury_log"],
         ),
         roster=dataclasses.replace(cfg.roster, tab=HIDDEN_TABS["roster"]),
         slack=dataclasses.replace(cfg.slack, enabled=post_slack and cfg.slack.enabled),
@@ -107,6 +109,7 @@ def _test_cfg(cfg, post_slack: bool):
             estimate_log_tab=HIDDEN_TABS["estimate_log"],
             price_history_tab=HIDDEN_TABS["price_history"],
             drift_log_tab=HIDDEN_TABS["drift_log"],
+            injury_log_tab=HIDDEN_TABS["injury_log"],
         ),
         roster=dataclasses.replace(cfg.roster, tab=HIDDEN_TABS["roster"]),
         # On, so estimated sample players get the marker and the estimate log.
@@ -288,7 +291,9 @@ def _verify(writer, cfg, build, rep: Report, stored_after_build) -> None:
     from .price_store import rows_from_build
 
     tabs = set(writer.tab_titles())
-    missing = [t for t in TEST_TABS if t not in tabs]
+    # The injury log is only created when a priced player is on the injury
+    # list, which the sample may not have — so it is not required here.
+    missing = [t for t in TEST_TABS if t not in tabs and t != HIDDEN_TABS["injury_log"]]
     if missing:
         rep.fail("TEST tabs created", f"missing: {missing}")
     else:

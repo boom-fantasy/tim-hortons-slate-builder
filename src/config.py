@@ -125,6 +125,7 @@ class SheetsConfig:
     estimate_log_tab: str
     price_history_tab: str
     drift_log_tab: str
+    injury_log_tab: str
     paste_tab_format: str
     align_tier_break: bool
     tab_name_format: str
@@ -138,6 +139,13 @@ class SheetsConfig:
 class SlackConfig:
     enabled: bool
     channel: str
+
+
+@dataclass(frozen=True)
+class InjuriesConfig:
+    enabled: bool = True
+    # Injury-list statuses that keep a player out of the contest.
+    exclude_statuses: list[str] = field(default_factory=lambda: ["ir", "out"])
 
 
 @dataclass(frozen=True)
@@ -159,6 +167,7 @@ class Config:
     sheets: SheetsConfig
     slack: SlackConfig
     drift_check: DriftCheckConfig
+    injuries: InjuriesConfig = field(default_factory=InjuriesConfig)
     raw: dict[str, Any] = field(repr=False, default_factory=dict)
 
     def tier_for(self, american_odds: int) -> int | None:
@@ -420,6 +429,7 @@ def load(path: str | Path | None = None) -> Config:
             estimate_log_tab=str(sh.get("estimate_log_tab", "_estimate_log")),
             price_history_tab=str(sh.get("price_history_tab", "_price_history")),
             drift_log_tab=str(sh.get("drift_log_tab", "_drift_log")),
+            injury_log_tab=str(sh.get("injury_log_tab", "_injury_log")),
             paste_tab_format=str(sh.get("paste_tab_format", "Paste %Y-%m-%d")),
             align_tier_break=bool(sh.get("align_tier_break", True)),
             tab_name_format=str(sh.get("tab_name_format", "Slate %Y-%m-%d")),
@@ -438,6 +448,11 @@ def load(path: str | Path | None = None) -> Config:
             enabled=bool(dc.get("enabled", False)),
             move_threshold=float(dc.get("move_threshold", 0.20)),
             slack=bool(dc.get("slack", False)),
+        )
+        ij = raw.get("injuries", {}) or {}
+        injuries = InjuriesConfig(
+            enabled=bool(ij.get("enabled", True)),
+            exclude_statuses=[str(x).lower() for x in ij.get("exclude_statuses", ["ir", "out"])],
         )
     except KeyError as exc:
         raise ConfigError(f"config.yaml: missing required section {exc}") from exc
@@ -467,5 +482,6 @@ def load(path: str | Path | None = None) -> Config:
         sheets=sheets,
         slack=slack,
         drift_check=drift_check,
+        injuries=injuries,
         raw=raw,
     )
