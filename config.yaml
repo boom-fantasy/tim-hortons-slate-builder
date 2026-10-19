@@ -164,11 +164,15 @@ slate:
   # change). Players tied on odds at the top cut are all kept. Unselected
   # players are tier 4 in the paste tab and left off the slate tab.
   #
-  # Raising spread_top (e.g. 3 -> 5 -> 10) is the main knob for moving the win
-  # rate up from here; lowering it, or raising submitted_per_tier, moves it down.
+  # Raising spread_top is the main knob for moving the win rate up from here;
+  # lowering it, or raising submitted_per_tier, moves it down. History:
+  #   10/13–10/19: 3   (top 3 + 17 spread)
+  #   from 10/20:  10  (top 10 + 10 spread) — ~+1.1 pt est. on the corrected
+  #                model, guarantees the night's 10 shortest prices per tier
+  #                (more stars), still under the points budget.
   selection: spread
   submitted_per_tier: 20
-  spread_top: 3
+  spread_top: 10
 
   # Players from the night's FINAL start time, per tier. The contest drops
   # players as their games start, so late in the evening only the last
