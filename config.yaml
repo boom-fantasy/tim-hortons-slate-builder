@@ -28,11 +28,13 @@ contest:
   # sharp user actually sees. Set to null to disable dilution modelling.
   max_players_per_tier: 15
 
-  # Real results vs the model. Actual any-correct has run this far ABOVE the
-  # model's average-user line (week 1: +1.3 pts, week 2: +1.7 pts), so the
-  # verdict and the Slack "estimated win rate" use average + this. Re-measure
-  # it each week against the reported win rate and update if it drifts.
-  actual_offset: 0.015
+  # Real results vs the model. Reported any-correct has run this far ABOVE the
+  # model's average-user line (a random picker), measured with the corrected
+  # 13% de-vig: week 1 +4.4 pts, week 2 +4.8, week 3 +1.2 — users pick a
+  # little better than random. The verdict and the Slack "estimated win rate"
+  # use average + this. Re-measure it each week; week 3 suggests it may be
+  # smaller now that the strongest players are always submitted.
+  actual_offset: 0.035
 
 # -----------------------------------------------------------------------------
 # Tier bands — American odds, inclusive on both ends
@@ -40,41 +42,48 @@ contest:
 # A player is assigned to the first tier whose range contains their odds.
 # Anything outside every range is excluded from the slate.
 #
-# Week 2 change (from 10/13). Week 1 (9/28–10/4) came in at 50.73% any-correct
-# and week 2 (10/5–10/11) at 52.74%, against a 60% target. A backtest of all 14
-# slates showed actual results track the model's AVERAGE-user line plus ~1.5
-# points — not the sharp line the earlier bands were tuned to.
+# Week 3 change (from 10/20). Three weeks below the 60% any-correct target:
+# 50.73%, 52.74%, 52.51%. Checking every submitted player against actual
+# goals (OpticOdds player results, 9/29–10/18) showed the earlier estimates
+# were optimistic: players scored ~7% less often than the old 6% de-vig
+# implied (see odds.devig, now 13%). On the corrected model, real scoring has
+# risen every week and the bands are the main remaining lever.
 #
-# These bands move shorter again and work together with slate.selection
-# (below): together they project ~57% actual, deliberately short of 60% to
-# stay under the points budget while results are measured. Judge it on the
-# weekly figure — nightly results are noisier now that the strongest players
-# are always submitted and picks may cluster on them.
+# These project ~58.6% on the corrected model (+ contest.actual_offset), vs
+# ~55.7% for the previous bands. Expect ~56–58% in practice: week 3 landed
+# below even the corrected estimate, and one week carries ~3 points of noise.
+# Cost: small slates sometimes have only 7–14 players in a tier.
 #
-# History:
+# History (bands -> reported any-correct):
 #   9/28–10/4:   T1 +150–290,  T2 +291–540,  T3 +541–900   -> 50.73%
 #   10/5–10/11:  T1 +105–270,  T2 +271–520,  T3 +521–1000  -> 52.74%
+#   10/12–10/18: T1 +100–230,  T2 +231–450,  T3 +451–850   -> 52.51%  (spread top 3 + 17)
 #
 # The Calibration v2 template has its own band cells — keep them identical.
 # -----------------------------------------------------------------------------
 tiers:
   - tier: 1
     min_odds: 100
-    max_odds: 230
+    max_odds: 200
   - tier: 2
-    min_odds: 231
-    max_odds: 450
+    min_odds: 201
+    max_odds: 400
   - tier: 3
-    min_odds: 451
-    max_odds: 850
+    min_odds: 401
+    max_odds: 750
 
 # -----------------------------------------------------------------------------
 # Odds handling
 # -----------------------------------------------------------------------------
 odds:
-  # Overround to strip from implied probability. Anytime-goalscorer markets
-  # typically carry 5-8%. Lower this if you switch to a sharper book.
-  devig: 0.06
+  # Share taken off the odds-implied probability to estimate the real chance
+  # of scoring. Calibrated 10/19 against actual goals: over 2,813 submitted-
+  # range player-games (+100 to +850, 9/29–10/18), 13% makes the model's
+  # average (19.1%) match the real scoring rate (19.1%); the previous 6%
+  # overstated it by ~7%. Affects estimates, projections and the verdict only —
+  # tiers and selection go by the odds, so they are unchanged by this.
+  # Re-check every few weeks as more results come in.
+  devig: 0.13
 
   # Primary sportsbook, as OpticOdds names it. Every game is priced from this
   # book when it has a market for that game.

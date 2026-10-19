@@ -334,10 +334,11 @@ _STRONG_SHARE = 2 / 13
 def estimated_actual(projections: dict[str, Projection], cfg: Config) -> float:
     """Estimated real any-correct rate for a slate.
 
-    Real results track the AVERAGE-user line plus a small offset, not the sharp
-    lines: across weeks 1-2 actual ran 1.3-1.7 points above the average line,
-    while sharp (adj) overstated it by 2-3 points. contest.actual_offset holds
-    that gap; re-measure it as weeks come in.
+    Real results track the AVERAGE-user line (a random picker) plus a small
+    offset, not the sharp lines. With odds.devig calibrated to actual goals,
+    the average line matches real scoring within ~1.5 points a week, and
+    reported results ran 1.2-4.8 points above it over weeks 1-3.
+    contest.actual_offset holds that gap; re-measure it as weeks come in.
     """
     return projections["average"].any_correct + cfg.contest.actual_offset
 
