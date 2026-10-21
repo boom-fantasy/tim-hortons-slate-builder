@@ -352,6 +352,8 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
                 f"  Left out (scratched last game): "
                 f"{len(build.dropped_recent_absence)}"
             )
+        for line in build.stretched:
+            print(f"  Small slate: {line}")
         if build.injury_excluded:
             print("  Injury list, left out: " + ", ".join(
                 f"{p.name} ({p.injury})" for p in build.injury_excluded))
@@ -399,6 +401,7 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
             tab_name=tab_name,
             games_count=build.fixtures_with_market,
             overwrite=args.overwrite,
+            bands=build.bands,
         )
     except Exception as exc:
         log.exception("sheet write failed")

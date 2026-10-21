@@ -63,6 +63,11 @@ class SlateBuild:
     # Set when the injury list could not be read (nobody was excluded).
     injury_note: str = ""
 
+    # The night's actual bands per tier (stretched on small slates), and a
+    # line per stretched tier for the summary.
+    bands: list = field(default_factory=list)
+    stretched: list[str] = field(default_factory=list)
+
     fixtures: list[Fixture] = field(default_factory=list)
 
     @property
@@ -452,6 +457,22 @@ def build(
                 log.info("injury list: left out %s", ", ".join(
                     f"{p.name} ({p.injury})" for p in excluded))
 
+    # A minimum per tier, so a small slate never leaves a tier with only a
+    # couple of players: a short tier stretches into the next-longer prices.
+    from .tiering import ensure_min_tier_sizes
+
+    configured = [(t.min_odds, t.max_odds) for t in cfg.tiers]
+    before = [sum(1 for p in players if p.tier == t.tier) for t in cfg.tiers]
+    bands = ensure_min_tier_sizes(players, cfg)
+    stretched = [
+        f"tier {t.tier} had only {n} at +{c[0]}–{c[1]}, so it runs to +{b[1]} tonight"
+        for t, n, c, b in zip(cfg.tiers, before, configured, bands) if b[1] > c[1]
+    ]
+    if bands != configured:
+        stretched.append("tonight's bands: " + " / ".join(f"+{lo}–{hi}" for lo, hi in bands))
+    if stretched:
+        log.info("small slate: %s", "; ".join(stretched))
+
     # Who goes into the contest per tier. Runs after every price, live or
     # estimated, has its band tier — so it sees the full pool.
     from .tiering import select_submitted
@@ -494,5 +515,7 @@ def build(
         late_counts=late_counts,
         late_unpriced=late_unpriced,
         injury_note=injury_note,
+        bands=bands,
+        stretched=stretched,
         fixtures=fixtures,
     )

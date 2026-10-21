@@ -251,6 +251,12 @@ def slate_summary(
             f"{build.late_label} starts."
         )
 
+    if build.stretched:
+        alerts.append(
+            f":straight_ruler: Small slate — tiers stretched to keep at least "
+            f"{cfg.slate.min_per_tier} players each: " + "; ".join(build.stretched)
+        )
+
     if build.injury_excluded:
         alerts.append(
             ":ambulance: Left out — on the injury list: " + ", ".join(

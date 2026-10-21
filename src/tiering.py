@@ -109,6 +109,45 @@ def enrich(players: list[Player], cfg: Config) -> list[Player]:
     return players
 
 
+def ensure_min_tier_sizes(players: list[Player], cfg: Config) -> list[tuple[int, int]]:
+    """Guarantee every tier at least slate.min_per_tier players, in place.
+
+    On a small slate a tier's configured band can hold only a handful of
+    players (a 2-game night had 3 in tier 1's +100-200). Working down the
+    tiers in order, a tier short of the minimum stretches its upper bound to
+    the next-longer prices until it reaches the minimum, taking them from the
+    next tier, which then starts just after it; the last tier stretches into
+    longer odds. Tiers stay contiguous and ordered by price. Players tied on
+    odds move together, so a tier can end a little over the minimum.
+
+    Returns that night's (min_odds, max_odds) per tier — the configured bands
+    when nothing needed stretching. Injury-excluded players are ignored.
+    """
+    need = cfg.slate.min_per_tier
+    odds = sorted(p.american_odds for p in players
+                  if not p.injury_excluded and p.american_odds >= cfg.tiers[0].min_odds)
+    bands: list[tuple[int, int]] = []
+    lo = cfg.tiers[0].min_odds
+    for band in cfg.tiers:
+        hi = max(band.max_odds, lo - 1)
+        count = sum(1 for o in odds if lo <= o <= hi)
+        if count < need:
+            for o in sorted({o for o in odds if o > hi}):
+                hi = o
+                count = sum(1 for x in odds if lo <= x <= hi)
+                if count >= need:
+                    break
+        bands.append((lo, hi))
+        lo = hi + 1
+
+    for p in players:
+        if p.injury_excluded:
+            continue
+        p.tier = next((t.tier for t, (a, b) in zip(cfg.tiers, bands) if a <= p.american_odds <= b),
+                      None)
+    return bands
+
+
 def _spread_pick(candidates: list[Player], count: int) -> list[Player]:
     """`count` players spread evenly from strongest to weakest of `candidates`
     (already sorted strongest first)."""

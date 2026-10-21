@@ -96,6 +96,8 @@ class SlateConfig:
     spread_top: int = 3
     # Minimum submitted players per tier from the night's final start time.
     late_game_min_per_tier: int = 3
+    # Minimum players per tier on any night; short tiers stretch to reach it.
+    min_per_tier: int = 10
 
 
 @dataclass(frozen=True)
@@ -133,6 +135,7 @@ class SheetsConfig:
     columns: dict[str, str]
     date_cell: str
     games_cell: str
+    band_cells: str
 
 
 @dataclass(frozen=True)
@@ -320,6 +323,8 @@ def _validate_slate(s: SlateConfig) -> list[str]:
             problems.append(f"slate.{name} must be an hour 0-23, got {value}")
     if s.selection not in ("all", "top", "spread"):
         problems.append(f"slate.selection must be all, top or spread, got {s.selection!r}")
+    if s.min_per_tier < 0:
+        problems.append("slate.min_per_tier must be >= 0")
     if s.late_game_min_per_tier < 0:
         problems.append("slate.late_game_min_per_tier must be >= 0")
     if s.submitted_per_tier < 1:
@@ -395,6 +400,7 @@ def load(path: str | Path | None = None) -> Config:
             submitted_per_tier=int(sl.get("submitted_per_tier", 20)),
             spread_top=int(sl.get("spread_top", 3)),
             late_game_min_per_tier=int(sl.get("late_game_min_per_tier", 3)),
+            min_per_tier=int(sl.get("min_per_tier", 10)),
         )
         rs = raw.get("roster", {})
         roster = RosterConfig(
@@ -437,6 +443,7 @@ def load(path: str | Path | None = None) -> Config:
             columns=dict(_require(sh, "columns", "sheets")),
             date_cell=str(sh.get("date_cell", "B3")),
             games_cell=str(sh.get("games_cell", "E3")),
+            band_cells=str(sh.get("band_cells", "K8:L10")),
         )
         sk = raw.get("slack", {})
         slack = SlackConfig(

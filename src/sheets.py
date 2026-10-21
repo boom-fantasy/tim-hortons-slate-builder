@@ -153,6 +153,7 @@ class SheetsWriter:
         tab_name: str,
         games_count: int,
         overwrite: bool = False,
+        bands: list | None = None,
     ) -> WriteResult:
         """Duplicate the template tab and fill in the player pool.
 
@@ -236,7 +237,15 @@ class SheetsWriter:
                     "range": f"'{tab_name}'!{self.cfg.sheets.games_cell}",
                     "values": [[games_count]],
                 },
-            ],
+            ] + ([
+                # That night's actual bands into this tab's band cells, so its
+                # own Tier formulas agree with the code even on a stretched
+                # small-slate night, and even if the template's cells drift.
+                {
+                    "range": f"'{tab_name}'!{self.cfg.sheets.band_cells}",
+                    "values": [[lo, hi] for lo, hi in bands],
+                }
+            ] if bands else []),
         }
         self.service.spreadsheets().values().batchUpdate(
             spreadsheetId=self.spreadsheet_id, body=body
