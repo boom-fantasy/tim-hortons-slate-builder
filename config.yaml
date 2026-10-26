@@ -167,12 +167,14 @@ slate:
   # Raising spread_top is the main knob for moving the win rate up from here;
   # lowering it, or raising submitted_per_tier, moves it down. History:
   #   10/13–10/19: 3   (top 3 + 17 spread)
-  #   from 10/20:  10  (top 10 + 10 spread) — ~+1.1 pt est. on the corrected
-  #                model, guarantees the night's 10 shortest prices per tier
-  #                (more stars), still under the points budget.
+  #   10/20–10/26: 10  (top 10 + 10 spread) — week of 10/19 came in at 66.4%
+  #                (~70% on the new-settings nights). Expected ~60%: users'
+  #                most-picked players scored ~37% above their odds that week.
+  #   from 10/27:  5   (top 5 + 15 spread) — a modest hedge, ~-0.9 pt est.,
+  #                trimming the guaranteed stars users concentrate on.
   selection: spread
   submitted_per_tier: 20
-  spread_top: 10
+  spread_top: 5
 
   # Players from the night's FINAL start time, per tier. The contest drops
   # players as their games start, so late in the evening only the last
