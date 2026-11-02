@@ -36,6 +36,17 @@ contest:
   # smaller now that the strongest players are always submitted.
   actual_offset: 0.035
 
+  # How the estimated win rate (Slack + verdict) is made. "user_model" scores
+  # the slate the way real users pick — they lean hard to the likeliest
+  # scorers and star names (src/user_model.py, star appeal per player in
+  # src/user_appeal.json). Fitted on 9/29-10/25 picks; it matched each week's
+  # luck-free expected win rate within ~0.5 pts, including a held-out week.
+  # "random_offset" goes back to the random picker + actual_offset above.
+  # Weights: log(p / tier best), cheapest-in-tier, 2nd-3rd, 4th-5th, star appeal.
+  estimate_method: user_model
+  user_model_weights: [2.30, 0.23, 0.10, 0.09, 0.84]
+  user_model_offset: 0.004
+
 # -----------------------------------------------------------------------------
 # Tier bands — American odds, inclusive on both ends
 #
