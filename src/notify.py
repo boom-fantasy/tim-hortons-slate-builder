@@ -332,12 +332,16 @@ def slate_summary(
     )
 
     # Projection.
-    # Estimated real results first (average line + measured offset); the
-    # sharp line is shown as a ceiling only — it overstates real results.
+    # Estimated real results first (how users really pick, or the average
+    # line + measured offset as a fallback); the sharp line is shown as a
+    # ceiling only — it overstates real results.
+    users = projections.get("users")
+    payout = (f"{users.expected_points:.2f} pts/user, how users pick" if users
+              else f"{avg.expected_points:.2f} pts/user, average user")
     proj_lines = [
         f"*Estimated win rate:* {_fmt_pct(est)} "
         f"(target {_fmt_pct(cfg.contest.target_any_correct)})",
-        f"*Projected payout:* {avg.expected_points:.2f} pts/user, average user "
+        f"*Projected payout:* {payout} "
         f"(budget {target:.2f}) · sharp ceiling {adj.expected_points:.2f}",
         f"*Verdict:* {read}",
     ]

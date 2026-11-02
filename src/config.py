@@ -42,6 +42,12 @@ class ContestConfig:
     # Measured gap between real results and the model's average-user
     # any-correct line (a share, 0.015 = 1.5 points). See tiering.verdict.
     actual_offset: float = 0.015
+    # How the estimated win rate is made: "user_model" (how real users pick,
+    # see user_model.py) or "random_offset" (random picker + actual_offset).
+    estimate_method: str = "user_model"
+    user_model_weights: list[float] = field(default_factory=lambda: [2.30, 0.23, 0.10, 0.09, 0.84])
+    user_model_offset: float = 0.004
+    user_appeal_file: str = "user_appeal.json"
 
     @property
     def target_expected_points(self) -> float:
@@ -315,6 +321,16 @@ def _validate_fallback(f: FallbackConfig) -> list[str]:
     return problems
 
 
+def _validate_estimate(c: ContestConfig) -> list[str]:
+    problems = []
+    if c.estimate_method not in ("user_model", "random_offset"):
+        problems.append(f"contest.estimate_method must be user_model or random_offset, "
+                        f"got {c.estimate_method!r}")
+    if len(c.user_model_weights) != 5:
+        problems.append("contest.user_model_weights needs exactly 5 numbers")
+    return problems
+
+
 def _validate_slate(s: SlateConfig) -> list[str]:
     problems = []
     for name in ("build_hour", "drift_hour"):
@@ -365,6 +381,11 @@ def load(path: str | Path | None = None) -> Config:
             targets=[float(x) for x in _require(raw["contest"], "targets", "contest")],
             max_players_per_tier=raw["contest"].get("max_players_per_tier"),
             actual_offset=float(raw["contest"].get("actual_offset", 0.015)),
+            estimate_method=str(raw["contest"].get("estimate_method", "user_model")),
+            user_model_weights=[float(x) for x in raw["contest"].get(
+                "user_model_weights", [2.30, 0.23, 0.10, 0.09, 0.84])],
+            user_model_offset=float(raw["contest"].get("user_model_offset", 0.004)),
+            user_appeal_file=str(raw["contest"].get("user_appeal_file", "user_appeal.json")),
         )
         tiers = [
             TierBand(
@@ -471,6 +492,7 @@ def load(path: str | Path | None = None) -> Config:
         + _validate_tiers(tiers)
         + _validate_odds(odds)
         + _validate_slate(slate)
+        + _validate_estimate(contest)
         + _validate_fallback(fallback)
         + _validate_roster(roster)
     )

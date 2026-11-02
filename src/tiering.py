@@ -61,6 +61,9 @@ class TierStats:
     avg_prob: float
     min_prob: float
     effective_top: float
+    # Users' expected hit rate in this tier (user_model.py); None when the
+    # random-offset method is in use or the tier is empty.
+    user_prob: float | None = None
 
     @property
     def diluted(self) -> bool:
@@ -296,7 +299,13 @@ def tier_stats(players: list[Player], cfg: Config) -> dict[int, TierStats]:
             share = cap / n
             effective = share * top + (1.0 - share) * avg
 
-        out[band.tier] = TierStats(band.tier, n, top, avg, lo, effective)
+        user_prob = None
+        if cfg.contest.estimate_method == "user_model":
+            from .user_model import expected_pick_prob
+
+            user_prob = expected_pick_prob(
+                [p for p in players if p.tier == band.tier], cfg)
+        out[band.tier] = TierStats(band.tier, n, top, avg, lo, effective, user_prob)
 
     return out
 
@@ -362,11 +371,15 @@ def project_all(stats: dict[int, TierStats], cfg: Config) -> dict[str, Projectio
     adj_probs = [stats[t].effective_top for t in tiers_in_order]
     avg_probs = [stats[t].avg_prob for t in tiers_in_order]
 
-    return {
+    out = {
         "sharp": project("Sharp", sharp_probs, cfg),
         "sharp_adj": project("Sharp (adj)", adj_probs, cfg),
         "average": project("Average", avg_probs, cfg),
     }
+    user_probs = [stats[t].user_prob for t in tiers_in_order]
+    if all(p is not None for p in user_probs):
+        out["users"] = project("Users", user_probs, cfg)
+    return out
 
 
 # Verdict thresholds as a share of the target. Originally absolute ±1 / ±2
@@ -380,12 +393,15 @@ _STRONG_SHARE = 2 / 13
 def estimated_actual(projections: dict[str, Projection], cfg: Config) -> float:
     """Estimated real any-correct rate for a slate.
 
-    Real results track the AVERAGE-user line (a random picker) plus a small
-    offset, not the sharp lines. With odds.devig calibrated to actual goals,
-    the average line matches real scoring within ~1.5 points a week, and
-    reported results ran 1.2-4.8 points above it over weeks 1-3.
-    contest.actual_offset holds that gap; re-measure it as weeks come in.
+    With contest.estimate_method "user_model" (the default), this is the win
+    rate users' real picking behavior produces on this slate (user_model.py)
+    plus a small residual — it tracked each week's luck-free expected win rate
+    within ~0.5 points. Otherwise, or if the user projection is unavailable,
+    it falls back to the random picker plus contest.actual_offset. Neither
+    includes luck: a single week lands several points either side of this.
     """
+    if "users" in projections:
+        return projections["users"].any_correct + cfg.contest.user_model_offset
     return projections["average"].any_correct + cfg.contest.actual_offset
 
 

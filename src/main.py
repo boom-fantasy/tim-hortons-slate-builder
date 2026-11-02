@@ -124,8 +124,9 @@ def _print_projection_table(cfg, stats, projections) -> None:
 
     print(f"\n  Target budget: {target:.2f} pts/user")
     print(f"  Est. win rate: {estimated_actual(projections, cfg):.1%} "
-          f"(average line + {cfg.contest.actual_offset:.1%} measured offset; "
-          f"target {cfg.contest.target_any_correct:.0%})")
+          + ("(how users really pick; " if "users" in projections else
+             f"(average line + {cfg.contest.actual_offset:.1%} measured offset; ")
+          + f"target {cfg.contest.target_any_correct:.0%})")
     print(f"  Verdict:       {verdict(projections, cfg)}")
 
 
