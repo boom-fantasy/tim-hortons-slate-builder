@@ -443,7 +443,16 @@ def build(
         except Exception:
             log.exception("injury list unavailable — no injury exclusions tonight")
             injured, injury_note = None, "injury list unavailable — nobody excluded"
+        # The league always has players on IR (100+ most days), so an empty
+        # list is a feed problem, not a healthy league. Flag it rather than
+        # silently treating everyone as fit.
+        if injured is not None and not injured:
+            log.warning("injury list came back empty — no injury exclusions tonight")
+            injured, injury_note = None, "injury list came back empty — nobody excluded"
         if injured is not None:
+            listed = [p for p in players if p.player_id in injured]
+            log.info("injury list: %d player(s) league-wide, %d of tonight's %d priced",
+                     len(injured), len(listed), len(players))
             for p in players:
                 rec = injured.get(p.player_id)
                 if not rec:
