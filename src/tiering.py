@@ -200,6 +200,42 @@ def ensure_late_game_coverage(players: list[Player], cfg: Config,
     return counts
 
 
+def ensure_team_coverage(players: list[Player], cfg: Config) -> tuple[list[Player], list[str]]:
+    """Make sure every team playing has at least one submitted player.
+
+    The selection works tier by tier, so it can submit several players from
+    one team and none from another. For each team with nobody submitted, its
+    most likely scorer among the unselected players inside a band is ADDED
+    back in his own tier. Nobody already selected is removed, so a tier can
+    end up a little over submitted_per_tier (as with late-game coverage).
+
+    Returns the players added, and the teams that could not be covered
+    because none of their priced players fell inside a band.
+    """
+    if not cfg.slate.every_team:
+        return [], []
+    by_team: dict[str, list[Player]] = {}
+    for p in players:
+        if p.team:
+            by_team.setdefault(p.team, []).append(p)
+    added: list[Player] = []
+    uncovered: list[str] = []
+    for team in sorted(by_team):
+        roster = by_team[team]
+        if any(p.tier in (1, 2, 3) for p in roster):
+            continue
+        spare = sorted((p for p in roster if p.trimmed and p.band_tier and not p.injury_excluded),
+                       key=lambda p: (-p.true_prob, p.name))
+        if not spare:
+            uncovered.append(team)
+            continue
+        best = spare[0]
+        best.tier = best.band_tier
+        best.trimmed = False
+        added.append(best)
+    return added, uncovered
+
+
 def select_submitted(players: list[Player], cfg: Config) -> None:
     """Choose who is submitted to the contest in each tier, in place.
 

@@ -69,19 +69,33 @@ contest:
 #   9/28–10/4:   T1 +150–290,  T2 +291–540,  T3 +541–900   -> 50.73%
 #   10/5–10/11:  T1 +105–270,  T2 +271–520,  T3 +521–1000  -> 52.74%
 #   10/12–10/18: T1 +100–230,  T2 +231–450,  T3 +451–850   -> 52.51%  (spread top 3 + 17)
+#   10/19–11/16: T1 +100–200,  T2 +201–400,  T3 +401–750   -> 66.39%, 61.74%, 56.96%, 60.47%
+#                (top 10 + 10 spread to 10/26, then top 5 + 15)
+#
+# Change from the 11/17 slate (built 11/16): T1 +100–150, T2 +151–600,
+# T3 +601–1200. The win rate was on target but payouts ran high: users pick
+# the best few players in EVERY tier, so wins come spread across tiers and
+# too many entries hit 2 or 3 (week of 11/9: 15.3% 2-correct, 2.4% 3-correct,
+# 10.52 pts vs 8.85). Tested with the user model on every priced player from
+# 11/7–11/15: these bands give slightly MORE wins for slightly LESS payout
+# than the old ones (58.8% / 8.90 pts vs 58.0% / 8.94 on that test, which
+# runs ~0.8 pts below real). No band setting reaches both 60% and 8.85 with
+# how users pick; at a 60% win rate expect payouts ~3-5% over 8.85. A longer
+# tier 3 cuts 3-correct (100 pts each). Odds-on favorites in tier 1 were also
+# tested: they add wins and payout in step, so they don't fix the split.
 #
 # The Calibration v2 template has its own band cells — keep them identical.
 # -----------------------------------------------------------------------------
 tiers:
   - tier: 1
     min_odds: 100
-    max_odds: 200
+    max_odds: 150
   - tier: 2
-    min_odds: 201
-    max_odds: 400
+    min_odds: 151
+    max_odds: 600
   - tier: 3
-    min_odds: 401
-    max_odds: 750
+    min_odds: 601
+    max_odds: 1200
 
 # -----------------------------------------------------------------------------
 # Odds handling
@@ -195,6 +209,15 @@ slate:
   # removed, so a tier can end up a little over submitted_per_tier. If the
   # final game has too few players in a band, Slack warns. (Added 10/15.)
   late_game_min_per_tier: 3
+
+  # At least one submitted player from every team playing. The selection
+  # above works tier by tier, so on its own it can submit several players
+  # from one team and none from another. After it (and late-game coverage),
+  # a team with nobody submitted gets its most likely in-band scorer added
+  # back in his own tier. Nobody is removed. On the 11/7–11/15 test this
+  # applied to ~5 of 131 team-nights. Teams with no priced player inside the
+  # bands cannot be covered and are reported. (Added 11/16.)
+  every_team: true
 
   # Minimum players per tier on any night. On a small slate a tier's band can
   # hold only a few players (10/21, a 2-game night: 3 in tier 1's +100-200,

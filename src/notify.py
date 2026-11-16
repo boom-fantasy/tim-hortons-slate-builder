@@ -244,6 +244,13 @@ def slate_summary(
                 f"have fewer than {need} players in {', '.join(short)}. After the "
                 f"earlier games start, users have few or no choices there."
             )
+    if build.team_added:
+        lines.append(f"_Every team covered — added {', '.join(build.team_added)}_")
+    if build.team_uncovered:
+        alerts.append(
+            f":warning: No player in the contest from {', '.join(build.team_uncovered)} "
+            f"— none of their priced players fall inside a band tonight."
+        )
     if build.late_unpriced:
         alerts.append(
             f":warning: Latest game(s) have no odds and are not in the contest: "

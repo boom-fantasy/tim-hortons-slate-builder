@@ -59,6 +59,10 @@ class SlateBuild:
     late_counts: dict = field(default_factory=dict)
     # Games starting after the final priced game — no odds, so not offered.
     late_unpriced: list[str] = field(default_factory=list)
+    # slate.every_team: players added so each team has one submitted, and
+    # teams that could not be (no priced player inside a band).
+    team_added: list[str] = field(default_factory=list)
+    team_uncovered: list[str] = field(default_factory=list)
 
     # Set when the injury list could not be read (nobody was excluded).
     injury_note: str = ""
@@ -507,6 +511,17 @@ def build(
         log.info("final game(s) %s: %s per tier", late_label,
                  " / ".join(str(late_counts.get(t.tier, 0)) for t in cfg.tiers))
 
+    # At least one player from every team (slate.every_team). Last, so it
+    # only adds where selection and late-game coverage left a team empty.
+    from .tiering import ensure_team_coverage
+
+    team_added, team_uncovered = ensure_team_coverage(players, cfg)
+    if team_added:
+        log.info("every team covered: added %s", ", ".join(
+            f"{p.name} ({p.team}, tier {p.tier})" for p in team_added))
+    if team_uncovered:
+        log.warning("no priced player in a band for: %s", ", ".join(team_uncovered))
+
     return SlateBuild(
         date_iso=date_iso,
         players=players,
@@ -523,6 +538,8 @@ def build(
         late_label=late_label,
         late_counts=late_counts,
         late_unpriced=late_unpriced,
+        team_added=[f"{p.name} ({p.team}, tier {p.tier})" for p in team_added],
+        team_uncovered=team_uncovered,
         injury_note=injury_note,
         bands=bands,
         stretched=stretched,

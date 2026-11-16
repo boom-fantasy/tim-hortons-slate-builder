@@ -104,6 +104,8 @@ class SlateConfig:
     late_game_min_per_tier: int = 3
     # Minimum players per tier on any night; short tiers stretch to reach it.
     min_per_tier: int = 10
+    # Every team with a priced player in a band gets at least one submitted.
+    every_team: bool = True
 
 
 @dataclass(frozen=True)
@@ -422,6 +424,7 @@ def load(path: str | Path | None = None) -> Config:
             spread_top=int(sl.get("spread_top", 3)),
             late_game_min_per_tier=int(sl.get("late_game_min_per_tier", 3)),
             min_per_tier=int(sl.get("min_per_tier", 10)),
+            every_team=bool(sl.get("every_team", True)),
         )
         rs = raw.get("roster", {})
         roster = RosterConfig(

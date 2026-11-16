@@ -369,6 +369,10 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
                   f"per tier (min {cfg.slate.late_game_min_per_tier})")
         if build.late_unpriced:
             print(f"  Later game(s) with no odds: {', '.join(build.late_unpriced)}")
+        if build.team_added:
+            print(f"  Every team covered — added {', '.join(build.team_added)}")
+        if build.team_uncovered:
+            print(f"  No player in a band for: {', '.join(build.team_uncovered)}")
         if build.backup_priced:
             print(f"  From backup book: {', '.join(build.backup_priced)}")
         for note in build.fallback_notes:
