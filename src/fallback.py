@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from .config import Config
 from .optic_odds import Fixture
 from .price_store import PriceRow
-from .tiering import Player
+from .tiering import Player, american_to_implied
 
 log = logging.getLogger(__name__)
 
@@ -77,9 +77,8 @@ def prob_to_american(prob: float) -> int:
     """
     prob = max(min(prob, 0.95), 0.001)
     if prob >= 0.5:
-        # Favourite pricing. Not expected for a goalscorer market, but returning
-        # a coherent number beats returning nonsense — it will fall outside the
-        # bands and be excluded on its own.
+        # Favourite pricing — the top stars are sometimes odds-on to score,
+        # and tier 1 takes them.
         return -int(round(prob / (1 - prob) * 100))
     return int(round((100 - 100 * prob) / prob))
 
@@ -109,13 +108,13 @@ def _collect_history(
             continue
         if floor and row.date < floor:
             continue
-        if row.american_odds <= 0:
+        if -100 < row.american_odds < 100:
             continue
         # Implied (with vig), not de-vigged: the average is converted back to
         # a book-style price, and enrich() de-vigs that like any live price.
         # De-vigging here as well would take the vig out twice and push every
         # estimate ~6% long.
-        implied = 100.0 / (row.american_odds + 100.0)
+        implied = american_to_implied(row.american_odds)
         _date, priced = games.setdefault(row.fixture_id, (row.date, {}))
         priced[row.player_id] = implied
         if row.player_id not in names or row.date > names[row.player_id][0]:

@@ -245,7 +245,7 @@ class SheetsWriter:
                     "range": f"'{tab_name}'!{self.cfg.sheets.band_cells}",
                     "values": [[lo, hi] for lo, hi in bands],
                 }
-            ] if bands else []),
+            ] if bands else []) + self._implied_formulas(tab_name, first_row, len(values)),
         }
         self.service.spreadsheets().values().batchUpdate(
             spreadsheetId=self.spreadsheet_id, body=body
@@ -263,6 +263,39 @@ class SheetsWriter:
             rows_written=len(values),
             spreadsheet_url=url,
         )
+
+    def _implied_formulas(self, tab_name: str, first_row: int, rows: int) -> list[dict]:
+        """Implied-probability formulas that handle odds-on prices.
+
+        The template computes implied as 100/(odds+100), which is only right
+        for positive odds — a -120 favourite would read -500%. Tier 1 takes
+        favourites, so each new tab gets formulas for both signs: the column
+        after odds for every written row, and the top/bottom prob columns
+        beside the band table.
+        """
+        def implied(ref: str) -> str:
+            return f"IF({ref}<0,-{ref}/(-{ref}+100),100/({ref}+100))"
+
+        odds_col = self.cfg.sheets.columns["odds"]
+        implied_col = chr(ord(odds_col) + 1)
+        out = []
+        if rows:
+            out.append({
+                "range": f"'{tab_name}'!{implied_col}{first_row}:{implied_col}{first_row + rows - 1}",
+                "values": [[f'=IF({odds_col}{r}="",0,{implied(f"{odds_col}{r}")})']
+                           for r in range(first_row, first_row + rows)],
+            })
+        # Band table: min/max odds in two columns, top/bottom prob in the next two.
+        start, end = self.cfg.sheets.band_cells.split(":")
+        lo_col, hi_col = start.rstrip("0123456789"), end.rstrip("0123456789")
+        top_col, bottom_col = chr(ord(hi_col) + 1), chr(ord(hi_col) + 2)
+        r0, r1 = int(start[len(lo_col):]), int(end[len(hi_col):])
+        out.append({
+            "range": f"'{tab_name}'!{top_col}{r0}:{bottom_col}{r1}",
+            "values": [[f"={implied(f'{lo_col}{r}')}*(1-$G$3)", f"={implied(f'{hi_col}{r}')}*(1-$G$3)"]
+                       for r in range(r0, r1 + 1)],
+        })
+        return out
 
     # -- season roster ------------------------------------------------------
 

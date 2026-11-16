@@ -270,9 +270,10 @@ def _parse_game(client, fixture: Fixture, rows: list[dict], label: str,
             skipped += 1
             continue
 
-        if price <= 0:
-            # Not a realistic anytime-goalscorer price; almost certainly the
-            # wrong side of the market or a bad row.
+        if -100 < price < 100:
+            # Not a valid American price (they run -100 and shorter, or +100
+            # and longer). Odds-on favourites, e.g. -120, are real anytime-
+            # goalscorer prices for the top stars and are kept for tier 1.
             skipped += 1
             continue
 
@@ -472,17 +473,19 @@ def build(
 
     # A minimum per tier, so a small slate never leaves a tier with only a
     # couple of players: a short tier stretches into the next-longer prices.
-    from .tiering import ensure_min_tier_sizes
+    from .tiering import ensure_min_tier_sizes, fmt_odds
 
     configured = [(t.min_odds, t.max_odds) for t in cfg.tiers]
     before = [sum(1 for p in players if p.tier == t.tier) for t in cfg.tiers]
     bands = ensure_min_tier_sizes(players, cfg)
     stretched = [
-        f"tier {t.tier} had only {n} at +{c[0]}–{c[1]}, so it runs to +{b[1]} tonight"
+        f"tier {t.tier} had only {n} at {fmt_odds(c[0])}–{fmt_odds(c[1])}, "
+        f"so it runs to {fmt_odds(b[1])} tonight"
         for t, n, c, b in zip(cfg.tiers, before, configured, bands) if b[1] > c[1]
     ]
     if bands != configured:
-        stretched.append("tonight's bands: " + " / ".join(f"+{lo}–{hi}" for lo, hi in bands))
+        stretched.append("tonight's bands: " + " / ".join(
+            f"{fmt_odds(lo)}–{fmt_odds(hi)}" for lo, hi in bands))
     if stretched:
         log.info("small slate: %s", "; ".join(stretched))
 

@@ -89,12 +89,15 @@ class Projection:
         return sum(self.outcome_probs[1:])
 
 
+def fmt_odds(american_odds: int) -> str:
+    """American odds for display: +150, -120."""
+    return f"{american_odds:+d}"
+
+
 def american_to_implied(american_odds: int) -> float:
     """Implied probability from American odds.
 
-    Handles both signs even though this tool expects underdog prices — a
-    negative value here almost certainly means bad input, and returning a
-    silently wrong number would be worse than handling it.
+    Handles both signs: tier 1 takes odds-on favourites (e.g. -120) too.
     """
     if american_odds == 0:
         raise ValueError("American odds of 0 is not a valid price")

@@ -34,7 +34,7 @@ from zoneinfo import ZoneInfo
 from . import config as config_mod
 from . import notify, slate as slate_mod
 from .optic_odds import OpticOddsClient
-from .tiering import (Player, enrich, estimated_actual, project_all, team_concentration,
+from .tiering import (Player, enrich, estimated_actual, fmt_odds, project_all, team_concentration,
                       tier_stats, verdict)
 
 log = logging.getLogger("slate-builder")
@@ -692,8 +692,8 @@ def cmd_simulate(args, cfg) -> int:
         shorter = sum(1 for p in out if p.american_odds < cfg.tiers[0].min_odds)
         longer = len(out) - shorter
         print(
-            f"  {shorter} shorter than +{cfg.tiers[0].min_odds}, "
-            f"{longer} longer than +{cfg.tiers[-1].max_odds}"
+            f"  {shorter} shorter than {fmt_odds(cfg.tiers[0].min_odds)}, "
+            f"{longer} longer than {fmt_odds(cfg.tiers[-1].max_odds)}"
         )
 
     if not eligible:

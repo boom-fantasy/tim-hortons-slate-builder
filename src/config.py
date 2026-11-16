@@ -263,12 +263,12 @@ def _validate_tiers(tiers: list[TierBand]) -> list[str]:
             problems.append(
                 f"tier {band.tier}: min_odds ({band.min_odds}) > max_odds ({band.max_odds})"
             )
-        if band.min_odds <= 0:
-            problems.append(
-                f"tier {band.tier}: min_odds must be positive. This tool assumes "
-                f"underdog (positive) American odds throughout — a favourite priced "
-                f"at -150 to score is not a realistic anytime-goalscorer line."
-            )
+        for name, value in (("min_odds", band.min_odds), ("max_odds", band.max_odds)):
+            if -100 < value < 100:
+                problems.append(
+                    f"tier {band.tier}: {name} {value} is not an American price "
+                    f"(use -100 or shorter for favourites, +100 or longer otherwise)"
+                )
 
     # Overlapping bands mean the first match wins, which is defined behaviour but
     # almost always a typo.
