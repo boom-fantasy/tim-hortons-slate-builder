@@ -215,6 +215,15 @@ slate:
   # final game has too few players in a band, Slack warns. (Added 10/15.)
   late_game_min_per_tier: 3
 
+  # When a tier's band holds fewer than late_game_min_per_tier players from
+  # the final game(s), borrow the closest-priced unselected players from
+  # those games just outside the band, up to this much true probability from
+  # the band's edge (0.06 = 6 points, about +150 to +200 for tier 1). Nobody
+  # already selected is moved. 11/17 had tier 1 down to Celebrini alone in
+  # DAL@VGK / CGY@SJ; this would have added Eichel +180 and Rantanen +190.
+  # The slate tab shows them in their contest tier. 0 turns it off. (Added 11/16.)
+  late_game_borrow_gap: 0.06
+
   # At least one submitted player from every team playing. The selection
   # above works tier by tier, so on its own it can submit several players
   # from one team and none from another. After it (and late-game coverage),

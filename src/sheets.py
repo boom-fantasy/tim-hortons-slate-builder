@@ -245,7 +245,8 @@ class SheetsWriter:
                     "range": f"'{tab_name}'!{self.cfg.sheets.band_cells}",
                     "values": [[lo, hi] for lo, hi in bands],
                 }
-            ] if bands else []) + self._implied_formulas(tab_name, first_row, len(values)),
+            ] if bands else []) + self._implied_formulas(tab_name, first_row, len(values))
+              + self._borrowed_tiers(tab_name, first_row, ordered),
         }
         self.service.spreadsheets().values().batchUpdate(
             spreadsheetId=self.spreadsheet_id, body=body
@@ -263,6 +264,17 @@ class SheetsWriter:
             rows_written=len(values),
             spreadsheet_url=url,
         )
+
+    def _borrowed_tiers(self, tab_name: str, first_row: int,
+                        ordered: list[Player]) -> list[dict]:
+        """The Tier column is a formula from the band cells, so a player
+        late-game coverage borrowed from just outside a band would read as the
+        neighbouring tier. Write his actual tier over the formula."""
+        tier_col = chr(ord(self.cfg.sheets.columns["odds"]) + 3)
+        return [
+            {"range": f"'{tab_name}'!{tier_col}{first_row + i}", "values": [[p.tier]]}
+            for i, p in enumerate(ordered) if getattr(p, "borrowed", False)
+        ]
 
     def _implied_formulas(self, tab_name: str, first_row: int, rows: int) -> list[dict]:
         """Implied-probability formulas that handle odds-on prices.

@@ -57,6 +57,9 @@ class SlateBuild:
     # players left in the contest.
     late_label: str = ""
     late_counts: dict = field(default_factory=dict)
+    # Players borrowed from just outside a band to fill a late tier, as
+    # "Name (team, +odds, tier N)".
+    late_borrowed: list[str] = field(default_factory=list)
     # Games starting after the final priced game — no odds, so not offered.
     late_unpriced: list[str] = field(default_factory=list)
     # slate.every_team: players added so each team has one submitted, and
@@ -503,11 +506,15 @@ def build(
 
     banded = {p.fixture_id for p in players if p.band_tier}
     timed = [f for f in fixtures if f.id in banded]
-    late_label, late_counts, late_unpriced = "", {}, []
+    late_label, late_counts, late_unpriced, late_borrowed = "", {}, [], []
     if timed:
         last = max(f.start_date for f in timed)
         late = [f for f in timed if f.start_date == last]
-        late_counts = ensure_late_game_coverage(players, cfg, {f.id for f in late})
+        late_counts, borrowed = ensure_late_game_coverage(players, cfg, {f.id for f in late})
+        late_borrowed = [f"{p.name} ({p.team}, {fmt_odds(p.american_odds)}, tier {p.tier})"
+                         for p in borrowed]
+        if late_borrowed:
+            log.info("final game(s) short in a band — borrowed %s", ", ".join(late_borrowed))
         late_label = ", ".join(f"{f.away_team} @ {f.home_team}" for f in late)
         late_unpriced = [f"{f.away_team} @ {f.home_team}" for f in fixtures
                          if f.start_date > last]
@@ -540,6 +547,7 @@ def build(
         backup_priced=backup_priced,
         late_label=late_label,
         late_counts=late_counts,
+        late_borrowed=late_borrowed,
         late_unpriced=late_unpriced,
         team_added=[f"{p.name} ({p.team}, tier {p.tier})" for p in team_added],
         team_uncovered=team_uncovered,

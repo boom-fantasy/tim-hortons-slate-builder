@@ -369,6 +369,8 @@ def _publish(args, cfg, client, build, date_iso: str, tab_name: str) -> int:
                   f"per tier (min {cfg.slate.late_game_min_per_tier})")
         if build.late_unpriced:
             print(f"  Later game(s) with no odds: {', '.join(build.late_unpriced)}")
+        if build.late_borrowed:
+            print(f"  Late tier filled from just outside its band — {', '.join(build.late_borrowed)}")
         if build.team_added:
             print(f"  Every team covered — added {', '.join(build.team_added)}")
         if build.team_uncovered:

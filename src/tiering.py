@@ -48,6 +48,10 @@ class Player:
     injury_type: str = ""
     injury_excluded: bool = False
 
+    # Set when late-game coverage put this player in a tier his price falls
+    # just outside of (see ensure_late_game_coverage).
+    borrowed: bool = False
+
     @property
     def eligible(self) -> bool:
         return self.tier is not None
@@ -168,7 +172,7 @@ def _spread_pick(candidates: list[Player], count: int) -> list[Player]:
 
 
 def ensure_late_game_coverage(players: list[Player], cfg: Config,
-                              late_fixture_ids: set[str]) -> dict[int, int]:
+                              late_fixture_ids: set[str]) -> tuple[dict[int, int], list[Player]]:
     """Make sure every tier has players from the night's final game(s).
 
     Once the earlier games start, the contest shows only players from games
@@ -179,13 +183,19 @@ def ensure_late_game_coverage(players: list[Player], cfg: Config,
 
     For each tier short of slate.late_game_min_per_tier, unselected players
     from the final game(s) in that tier's band are ADDED back (spread from
-    strongest to weakest, like the main selection). Nobody already selected is
-    removed. Returns the final count per tier from the final game(s); a tier
-    still under the minimum means the final game simply has too few players
-    in that band.
+    strongest to weakest, like the main selection). If the band itself has too
+    few, the tier BORROWS the closest-priced unselected players from the final
+    game(s) just outside it, up to slate.late_game_borrow_gap of true
+    probability from the band's edge (11/17: tier 1 had only Celebrini, so
+    Eichel +180 and Rantanen +190 would come in). Nobody already selected is
+    removed or moved. Returns the final count per tier from the final game(s)
+    and the borrowed players; a tier still under the minimum means nobody was
+    priced close enough.
     """
     need = cfg.slate.late_game_min_per_tier
+    gap = cfg.slate.late_game_borrow_gap
     counts: dict[int, int] = {}
+    borrowed: list[Player] = []
     for band in cfg.tiers:
         late_band = sorted(
             (p for p in players if p.band_tier == band.tier and p.fixture_id in late_fixture_ids),
@@ -199,8 +209,30 @@ def ensure_late_game_coverage(players: list[Player], cfg: Config,
                 p.tier = band.tier
                 p.trimmed = False
             have = [p for p in late_band if p.tier == band.tier]
+        short = need - len(have)
+        if short > 0 and gap > 0:
+            keep = 1.0 - cfg.odds.devig
+            hi_p = american_to_implied(band.min_odds) * keep
+            lo_p = american_to_implied(band.max_odds) * keep
+
+            def distance(p: Player) -> float:
+                return max(lo_p - p.true_prob, p.true_prob - hi_p, 0.0)
+
+            nearby = sorted(
+                (p for p in players
+                 if p.fixture_id in late_fixture_ids and p.tier is None
+                 and not p.injury_excluded and p.band_tier != band.tier
+                 and distance(p) <= gap),
+                key=lambda p: (distance(p), p.name),
+            )
+            for p in nearby[:short]:
+                p.tier = band.tier
+                p.trimmed = False
+                p.borrowed = True
+                borrowed.append(p)
+            have = [p for p in players if p.tier == band.tier and p.fixture_id in late_fixture_ids]
         counts[band.tier] = len(have)
-    return counts
+    return counts, borrowed
 
 
 def ensure_team_coverage(players: list[Player], cfg: Config) -> tuple[list[Player], list[str]]:

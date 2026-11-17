@@ -236,6 +236,11 @@ def slate_summary(
             f"{' / '.join(map(str, counts))} players per tier "
             f"(all that is left late in the evening)_"
         )
+        if build.late_borrowed:
+            lines.append(
+                f"_Late tier filled from just outside its band — "
+                f"{', '.join(build.late_borrowed)}_"
+            )
         short = [f"tier {t.tier}: {build.late_counts.get(t.tier, 0)}"
                  for t in cfg.tiers if build.late_counts.get(t.tier, 0) < need]
         if short:
