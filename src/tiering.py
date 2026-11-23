@@ -48,8 +48,8 @@ class Player:
     injury_type: str = ""
     injury_excluded: bool = False
 
-    # Set when late-game coverage put this player in a tier his price falls
-    # just outside of (see ensure_late_game_coverage).
+    # Set when late-game coverage or tier padding put this player in a tier
+    # his price falls outside of (see ensure_late_game_coverage, pad_tiers).
     borrowed: bool = False
 
     @property
@@ -233,6 +233,48 @@ def ensure_late_game_coverage(players: list[Player], cfg: Config,
             have = [p for p in players if p.tier == band.tier and p.fixture_id in late_fixture_ids]
         counts[band.tier] = len(have)
     return counts, borrowed
+
+
+def pad_tiers(players: list[Player], cfg: Config,
+              bands: list[tuple[int, int]]) -> list[Player]:
+    """Top every tier up to slate.pad_per_tier submitted players, in place.
+
+    Small slates leave tier 1 with only ~10 players. Stretching its band
+    further would take tier 2's best-priced players, and since users pick the
+    top of each tier that costs win rate (about 1 point a night on the 11/16-
+    11/23 test). Padding instead adds players the selection LEFT OUT,
+    closest-priced to the tier's band first (for tier 1, the shortest
+    unsubmitted tier 2 players), so nobody submitted moves and the other tiers
+    are untouched. The padded players are long for their tier and few users
+    take them: about -0.4 points on the nights it applies.
+
+    Injury-excluded players are never used. Returns the padded players.
+    """
+    want = cfg.slate.pad_per_tier
+    if want <= 0:
+        return []
+    keep = 1.0 - cfg.odds.devig
+    padded: list[Player] = []
+    for band, (lo_odds, hi_odds) in zip(cfg.tiers, bands):
+        short = want - sum(1 for p in players if p.tier == band.tier)
+        if short <= 0:
+            continue
+        hi_p = american_to_implied(lo_odds) * keep
+        lo_p = american_to_implied(hi_odds) * keep
+
+        def distance(p: Player) -> float:
+            return max(lo_p - p.true_prob, p.true_prob - hi_p, 0.0)
+
+        spare = sorted(
+            (p for p in players if p.trimmed and not p.injury_excluded),
+            key=lambda p: (distance(p), p.name),
+        )
+        for p in spare[:short]:
+            p.tier = band.tier
+            p.trimmed = False
+            p.borrowed = p.band_tier != band.tier
+            padded.append(p)
+    return padded
 
 
 def ensure_team_coverage(players: list[Player], cfg: Config) -> tuple[list[Player], list[str]]:

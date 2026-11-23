@@ -107,6 +107,9 @@ class SlateConfig:
     late_game_borrow_gap: float = 0.06
     # Minimum players per tier on any night; short tiers stretch to reach it.
     min_per_tier: int = 10
+    # Then top every tier up to this many with players the selection left
+    # out, closest-priced first, without moving anyone submitted. 0 = off.
+    pad_per_tier: int = 0
     # Every team with a priced player in a band gets at least one submitted.
     every_team: bool = True
 
@@ -346,6 +349,8 @@ def _validate_slate(s: SlateConfig) -> list[str]:
         problems.append(f"slate.selection must be all, top or spread, got {s.selection!r}")
     if s.min_per_tier < 0:
         problems.append("slate.min_per_tier must be >= 0")
+    if s.pad_per_tier < 0:
+        problems.append("slate.pad_per_tier must be >= 0")
     if s.late_game_min_per_tier < 0:
         problems.append("slate.late_game_min_per_tier must be >= 0")
     if not 0 <= s.late_game_borrow_gap < 0.5:
@@ -430,6 +435,7 @@ def load(path: str | Path | None = None) -> Config:
             late_game_min_per_tier=int(sl.get("late_game_min_per_tier", 3)),
             late_game_borrow_gap=float(sl.get("late_game_borrow_gap", 0.06)),
             min_per_tier=int(sl.get("min_per_tier", 10)),
+            pad_per_tier=int(sl.get("pad_per_tier", 0)),
             every_team=bool(sl.get("every_team", True)),
         )
         rs = raw.get("roster", {})

@@ -60,6 +60,9 @@ class SlateBuild:
     # Players borrowed from just outside a band to fill a late tier, as
     # "Name (team, +odds, tier N)".
     late_borrowed: list[str] = field(default_factory=list)
+    # slate.pad_per_tier: left-out players added to reach the floor, as
+    # "Name (+odds, tier N)".
+    padded: list[str] = field(default_factory=list)
     # Games starting after the final priced game — no odds, so not offered.
     late_unpriced: list[str] = field(default_factory=list)
     # slate.every_team: players added so each team has one submitted, and
@@ -498,6 +501,16 @@ def build(
 
     select_submitted(players, cfg)
 
+    # Top small tiers up to slate.pad_per_tier with players the selection left
+    # out, closest-priced first. Never moves a submitted player, so tier 2
+    # keeps its best options when tier 1 is short.
+    from .tiering import pad_tiers
+
+    padded = [f"{p.name} ({fmt_odds(p.american_odds)}, tier {p.tier})"
+              for p in pad_tiers(players, cfg, bands)]
+    if padded:
+        log.info("padded short tier(s): %s", ", ".join(padded))
+
     # The contest drops players as their games start, so late in the evening
     # only the final start time's players remain. Every tier needs some of
     # them. "Final" = the latest start among games that have players in a
@@ -548,6 +561,7 @@ def build(
         late_label=late_label,
         late_counts=late_counts,
         late_borrowed=late_borrowed,
+        padded=padded,
         late_unpriced=late_unpriced,
         team_added=[f"{p.name} ({p.team}, tier {p.tier})" for p in team_added],
         team_uncovered=team_uncovered,

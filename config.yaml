@@ -242,6 +242,15 @@ slate:
   # tab's band cells (sheets.band_cells), and Slack says when it happened.
   min_per_tier: 10
 
+  # After the stretch above and the selection, top every tier up to this many
+  # submitted players using players the selection LEFT OUT, closest-priced to
+  # the tier first (for tier 1: the shortest unsubmitted tier 2 players).
+  # Unlike stretching, it never moves a submitted player, so tier 2 keeps its
+  # best options. Test on 11/16-11/23: stretching tier 1 to 12 cost 0.4-2.2
+  # win-rate points a night; padding costs ~0.3-0.5 on nights it applies
+  # (usually tier 1 on slates of 7 games or fewer). 0 turns it off. (Added 11/23.)
+  pad_per_tier: 12
+
 # -----------------------------------------------------------------------------
 # Historical fallback
 #

@@ -228,6 +228,9 @@ def slate_summary(
             f":grey_question: Priced but no team in the feed's rosters (left out): {shown}"
         )
 
+    if build.padded:
+        lines.append(f"_Short tier padded to {cfg.slate.pad_per_tier} with left-out players — "
+                     f"{', '.join(build.padded)}_")
     if build.late_label:
         need = cfg.slate.late_game_min_per_tier
         counts = [build.late_counts.get(t.tier, 0) for t in cfg.tiers]
